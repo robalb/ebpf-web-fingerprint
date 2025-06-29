@@ -1,21 +1,15 @@
 package bpfprobe
 
-import (
-	"fmt"
-	"strconv"
-	"strings"
-)
+type HandshakeTCP struct {
+	MSS        uint16
+	Window     uint16
+	Scale      uint8
+	OptionList []uint16
+}
 
-func fingerprint(t xdpTcpHandshakeVal) string {
-	// SrcAddr uint32
-	// Ifindex uint32
-	// SrcPort uint16
-
-	// Window  uint16
-	// Optlen  uint16
-	// Options [40]uint8
-
+func parseTCP(t xdpTcpHandshakeVal) HandshakeTCP {
 	window := netToHost_uint16(t.Window)
+
 	// Optlen doesn't come from a net packet. It's an int defined
 	// at the ebpf side, which means it has the host's endianness.
 	optlen := int(t.Optlen)
@@ -23,13 +17,10 @@ func fingerprint(t xdpTcpHandshakeVal) string {
 	//parse the TCP options
 	i := 0
 	mss := uint16(0)
-	scale := 0
-	options := strings.Builder{}
+	scale := uint8(0)
+	optionList := []uint16{}
 
 	for i < optlen {
-		if i > 0 {
-			options.WriteRune('-')
-		}
 		kind := t.Options[i]
 
 		// EOL option
@@ -37,7 +28,7 @@ func fingerprint(t xdpTcpHandshakeVal) string {
 			break
 		}
 
-		options.WriteString(strconv.FormatUint(uint64(kind), 16))
+		optionList = append(optionList, uint16(kind))
 
 		// NOP option
 		if kind == 1 {
@@ -63,11 +54,16 @@ func fingerprint(t xdpTcpHandshakeVal) string {
 
 		// Scale option
 		if kind == 3 && length == 3 {
-			scale = int(t.Options[i+2])
+			scale = t.Options[i+2]
 		}
 
 		i += length
 	}
 
-	return fmt.Sprintf("%d_%d_%d_%s_%d", window, mss, optlen, options.String(), scale)
+	return HandshakeTCP{
+		MSS:        mss,
+		Window:     window,
+		Scale:      scale,
+		OptionList: optionList,
+	}
 }

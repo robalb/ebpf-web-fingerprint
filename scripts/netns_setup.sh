@@ -20,8 +20,8 @@ sudo ip netns exec testns ip link set veth-ns up
 sudo ip netns exec testns ip link set lo up
 
 # disable RST packets, both received and sent to the namespace
-sudo ip netns exec testns iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
-sudo ip netns exec testns iptables -A INPUT -p tcp --tcp-flags RST RST -j DROP
+# sudo ip netns exec testns iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP
+# sudo ip netns exec testns iptables -A INPUT -p tcp --tcp-flags RST RST -j DROP
 
 # Add default route in namespace
 sudo ip netns exec testns ip route add default via 10.200.1.1

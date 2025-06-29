@@ -20,7 +20,7 @@ const (
 	config_iface    = "veth-ns"
 	config_dst_ip   = "10.200.1.2"
 	config_dst_port = 8080
-	config_tls      = true
+	config_tls      = false
 	config_tls_cert = "cert.pem"
 	config_tls_key  = "key.pem"
 )
@@ -39,9 +39,9 @@ func Run(
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	//--------------------
+	//+++++++++++++++++++++++
 	// Initialize all modules
-	//--------------------
+	//+++++++++++++++++++++++
 
 	// Init logging
 	logger := log.New(stdout, "", log.Flags())
@@ -54,29 +54,37 @@ func Run(
 	}
 	defer probe.Close()
 
-	// Init Server
+	// Init the server handlers
 	srv := NewServer(
 		logger,
 		probe,
 	)
 
+	// Pin the TLS version
+	// TODO(al) fix and document this
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS12,
 	}
 
+	// Disable HTTP/2
+	// see: https://go.googlesource.com/go/+/master/src/net/http/doc.go?autodive=0%2F%2F#81
+	// TODO(al) fix and document this
+	tlsNextProto := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
+
 	httpServer := &http.Server{
-		Addr:      net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
-		Handler:   srv,
-		TLSConfig: tlsConfig,
+		Addr:         net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
+		Handler:      srv,
+		TLSConfig:    tlsConfig,
+		TLSNextProto: tlsNextProto,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			return context.WithValue(ctx, connKey, c)
 		},
 	}
 
-	//--------------------
+	//++++++++++++++++++++
 	// Start the webserver
-	//--------------------
+	//++++++++++++++++++++
 	go func() {
 		logger.Printf("listening on %s, TLS enabled: %v\n", httpServer.Addr, config_tls)
 		var err error
@@ -91,9 +99,9 @@ func Run(
 		}
 	}()
 
-	//--------------------
+	//++++++++++++++++++
 	// Graceful shutdown
-	//--------------------
+	//++++++++++++++++++
 	var wg sync.WaitGroup
 	// Webserver graceful shutdown
 	wg.Add(1)

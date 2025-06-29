@@ -172,10 +172,7 @@ func gatherWindowMaps(mapSize int) map[int]int {
 
 // Perform an HTTP request to the target webserver, with a customized TCP receive buffer size.
 // then parse the response body, extracting the tcp MSS and TCP window that the server should have
-// returned. the format that this function expects is:
-// ---- HTTP Body ----
-// {"Tcp":"65495_1026_20_2-4-8-1-3_7","Sock":"rtt: 93, rttvar: 32","Proto":"HTTP/1.1","Headers":"..."}
-// -------------------
+// returned.
 //
 // Note that the windowSize that is set as param for this function will not correspond with the
 // actual windowSize in the TCP SYN sent by the request. The actual value is set by the kernel,

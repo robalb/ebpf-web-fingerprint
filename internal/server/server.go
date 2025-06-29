@@ -44,7 +44,7 @@ func NewServer(
 }
 
 type DebugDID struct {
-	Tcp     string
+	Tcp     bpfprobe.HandshakeTCP
 	Sock    string
 	Proto   string
 	Headers string
@@ -83,8 +83,14 @@ func serveTestFinger(
 			readableHeaders += value[0]
 		}
 
+		lookupResult, err := p.Lookup(remoteIP, remotePort)
+		if err != nil {
+			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
+			return
+		}
+
 		validation.RespondOk(w, DebugDID{
-			Tcp:     p.Lookup(remoteIP, remotePort),
+			Tcp:     lookupResult.TCP,
 			Sock:    sockinfo,
 			Proto:   r.Proto,
 			Headers: readableHeaders,
@@ -112,7 +118,7 @@ func serveTestBaseline(
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.Println("Mock request")
 		validation.RespondOk(w, DebugDID{
-			Tcp:     "mock",
+			Tcp:     bpfprobe.HandshakeTCP{},
 			Sock:    "mock",
 			Proto:   "mock",
 			Headers: "mock",
