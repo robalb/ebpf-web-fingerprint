@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,9 @@ const (
 	config_iface    = "veth-ns"
 	config_dst_ip   = "10.200.1.2"
 	config_dst_port = 8080
+	config_tls      = true
+	config_tls_cert = "cert.pem"
+	config_tls_key  = "key.pem"
 )
 
 type connKeyType struct{}
@@ -56,9 +60,15 @@ func Run(
 		probe,
 	)
 
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		MaxVersion: tls.VersionTLS12,
+	}
+
 	httpServer := &http.Server{
-		Addr:    net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
-		Handler: srv,
+		Addr:      net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
+		Handler:   srv,
+		TLSConfig: tlsConfig,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			return context.WithValue(ctx, connKey, c)
 		},
@@ -68,8 +78,15 @@ func Run(
 	// Start the webserver
 	//--------------------
 	go func() {
-		logger.Printf("listening on %s\n", httpServer.Addr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logger.Printf("listening on %s, TLS enabled: %v\n", httpServer.Addr, config_tls)
+		var err error
+		if config_tls {
+			err = httpServer.ListenAndServeTLS(config_tls_cert, config_tls_key)
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+
+		if err != nil && err != http.ErrServerClosed {
 			fmt.Fprintf(stderr, "error listening and serving: %s\n", err)
 		}
 	}()
