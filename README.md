@@ -1,12 +1,12 @@
 # eBPF web fingerprint
 
-A golang webserver demonstrating fast TCP & TLS fingerprinting using eBPF
+a golang webserver for fast TCP & TLS fingerprintng, powered by eBPF
 
 The development of this project is documented [in this article](https://halb.it/posts/ebpf-fingerprinting-1/)
 
 ## Goals
 
-The main goal is to 
+The main goal is to eventually
 implement a framework that enables easy access to both TCP 
 and TLS handshake data from any regular webserver.
 This will provide powerful tools to extend existing reverse proxies
