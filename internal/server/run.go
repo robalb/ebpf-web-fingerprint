@@ -29,6 +29,10 @@ type connKeyType struct{}
 
 var connKey = connKeyType{}
 
+type remoteAddrKeyTpe struct{}
+
+var remoteAddrKey = remoteAddrKeyTpe{}
+
 func Run(
 	ctx context.Context,
 	stdout io.Writer,
@@ -78,7 +82,13 @@ func Run(
 		TLSConfig:    tlsConfig,
 		TLSNextProto: tlsNextProto,
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			return context.WithValue(ctx, connKey, c)
+			switch c := c.(type) {
+			case *tls.Conn:
+				ctx = context.WithValue(ctx, connKey, c.NetConn())
+			case *net.TCPConn:
+				ctx = context.WithValue(ctx, connKey, c)
+			}
+			return context.WithValue(ctx, remoteAddrKey, c.RemoteAddr())
 		},
 	}
 
