@@ -55,27 +55,24 @@ func serveTestFinger(
 	p *bpfprobe.Probe,
 ) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// get sockinfo
 		connBase, ok := r.Context().Value(connKey).(net.Conn)
 		if !ok {
 			http.Error(w, "connection not found", http.StatusInternalServerError)
 			return
 		}
-
 		conn, ok := connBase.(*net.TCPConn)
 		if !ok {
 			http.Error(w, "connection is not tcp", http.StatusInternalServerError)
 			return
 		}
-
-		remoteIP, remotePort, _ := net.SplitHostPort(conn.RemoteAddr().String())
-		logger.Printf("host: %s, port: %s", remoteIP, remotePort)
-
 		info, err := tcpinfo.GetsockoptTCPInfo(conn)
 		if err != nil {
 			http.Error(w, "getsockopt failed", http.StatusInternalServerError)
 		}
 		sockinfo := fmt.Sprintf("rtt: %d, rttvar: %d", info.Rtt, info.Rttvar)
 
+		// get HTTP headers
 		readableHeaders := ""
 		for key, value := range r.Header {
 			readableHeaders += key
@@ -83,6 +80,14 @@ func serveTestFinger(
 			readableHeaders += value[0]
 		}
 
+		// get TCP / TLS data
+		remoteAddr, ok := r.Context().Value(remoteAddrKey).(string)
+		if !ok {
+			http.Error(w, "remote addr not in context", http.StatusInternalServerError)
+			return
+		}
+		remoteIP, remotePort, _ := net.SplitHostPort(remoteAddr)
+		logger.Printf("host: %s, port: %s", remoteIP, remotePort)
 		lookupResult, err := p.Lookup(remoteIP, remotePort)
 		if err != nil {
 			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)

@@ -88,7 +88,8 @@ func Run(
 			case *net.TCPConn:
 				ctx = context.WithValue(ctx, connKey, c)
 			}
-			return context.WithValue(ctx, remoteAddrKey, c.RemoteAddr())
+
+			return context.WithValue(ctx, remoteAddrKey, c.RemoteAddr().String())
 		},
 	}
 
