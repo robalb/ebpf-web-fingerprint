@@ -27,7 +27,6 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 struct tcp_handshake_val {
   // debug data
   __be32 src_addr;
-  __u32 ifindex;
   __be16 src_port;
 
   // tcp data
@@ -39,6 +38,12 @@ struct tcp_handshake_val {
 inline __u64 tcp_handshake_make_key(__u32 ip, __u16 port) {
   return ((__u64)ip << 16) | port;
 }
+
+static void __always_inline parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp,
+                                          void *data_end);
+
+static void __always_inline parse_tls_hello(struct iphdr *ip,
+                                            struct tcphdr *tcp, void *data_end);
 
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -54,7 +59,6 @@ struct {
   __type(value, struct tcp_handshake_val);
 } tcp_handshakes SEC(".maps");
 
-// count_packets atomically increases a packet counter on every invocation.
 SEC("xdp")
 int count_packets(struct xdp_md *ctx) {
 
@@ -106,14 +110,20 @@ int count_packets(struct xdp_md *ctx) {
     return XDP_PASS;
   }
 
-  if (!(tcp->syn) || tcp->ack) // SYN-only (no SYN-ACK)
-    return XDP_PASS;
+  if (tcp->syn && !tcp->ack) {
+    parse_tcp_syn(ip, tcp, data_end);
+  } else if (!tcp->syn && tcp->ack) {
+    // parse_tls_hello(ip, tcp, data_end);
+  }
 
-  // we perform __bpf_ntohs in user-space. dst_port is already in be format.
+  return XDP_PASS;
+}
+
+void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   if (tcp->dest != dst_port)
-    return XDP_PASS;
+    return;
 
-  // action 2: SYN counter increment
+  // increment the SYN counter
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
@@ -123,19 +133,20 @@ int count_packets(struct xdp_md *ctx) {
   struct tcp_handshake_val val = {
       .src_addr = ip->saddr,
       .src_port = tcp->source,
-      .ifindex = ctx->ingress_ifindex,
       .optlen = tcp->doff * 4 - TCPH_MINLEN,
       .window = tcp->window,
   };
   __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
 
+#ifdef DEBUG
   // debug destination filtering
-  // bpf_printk("xdp IP: %d - %d", ip->daddr, dst_ip);
-  // bpf_printk("xdp TCP: %d - %d", tcp->dest, dst_port);
+  bpf_printk("xdp destination IP: %d - %d", ip->daddr, dst_ip);
+  bpf_printk("xdp destination PORT: %d - %d", tcp->dest, dst_port);
   // debug source filtering
-  bpf_printk("xdp IP: %08x", ip->saddr);
-  bpf_printk("xdp PORT: %04x", tcp->source);
-  bpf_printk("xdp KEY: %016llx", key);
+  bpf_printk("xdp source IP: %08x", ip->saddr);
+  bpf_printk("xdp source PORT: %04x", tcp->source);
+  bpf_printk("xdp hashmap KEY: %016llx", key);
+#endif
 
   // Pointer to the start of the tcp options
   __u8 *options = (unsigned char *)tcp + TCPH_MINLEN;
@@ -149,8 +160,5 @@ int count_packets(struct xdp_md *ctx) {
     }
   }
 
-  bpf_printk("tcp optlen: %d ", val.optlen);
   bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);
-
-  return XDP_PASS;
 }

@@ -14,7 +14,6 @@ import (
 
 type xdpTcpHandshakeVal struct {
 	SrcAddr uint32
-	Ifindex uint32
 	SrcPort uint16
 	Window  uint16
 	Optlen  uint16
