@@ -24,6 +24,30 @@ __u32 dst_ip = 16777343;
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
+// a generic TLS hello, supporting both
+// TLS 1.1, 1.2, 1.3
+struct tlshello {
+  __u8 recordh_type;
+  __be16 recordh_version;
+  __be16 recordh_len;
+  __u8 hproto_type;
+  __u8 hproto_len[3];
+};
+
+struct {
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __type(key, __u32);
+  __type(value, __u64);
+  __uint(max_entries, 1);
+} pkt_count SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_LRU_HASH);
+  __uint(max_entries, 8192);
+  __type(key, __u64);
+  __type(value, struct tcp_handshake_val);
+} tcp_handshakes SEC(".maps");
+
 struct tcp_handshake_val {
   // debug data
   __be32 src_addr;
@@ -45,26 +69,13 @@ static void __always_inline parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp,
 static void __always_inline parse_tls_hello(struct iphdr *ip,
                                             struct tcphdr *tcp, void *data_end);
 
-struct {
-  __uint(type, BPF_MAP_TYPE_ARRAY);
-  __type(key, __u32);
-  __type(value, __u64);
-  __uint(max_entries, 1);
-} pkt_count SEC(".maps");
-
-struct {
-  __uint(type, BPF_MAP_TYPE_LRU_HASH);
-  __uint(max_entries, 8192);
-  __type(key, __u64);
-  __type(value, struct tcp_handshake_val);
-} tcp_handshakes SEC(".maps");
-
 SEC("xdp")
 int count_packets(struct xdp_md *ctx) {
 
   // Pointers to packet data
   void *data = (void *)(long)ctx->data;
   void *data_end = (void *)(long)ctx->data_end;
+  void *offset = data;
 
   // --- ETH layer
 
@@ -110,19 +121,28 @@ int count_packets(struct xdp_md *ctx) {
     return XDP_PASS;
   }
 
+  if (tcp->dest != dst_port)
+    return XDP_PASS;
+
   if (tcp->syn && !tcp->ack) {
     parse_tcp_syn(ip, tcp, data_end);
   } else if (!tcp->syn && tcp->ack) {
-    // parse_tls_hello(ip, tcp, data_end);
+    parse_tls_hello(ip, tcp, data_end);
   }
 
   return XDP_PASS;
 }
 
-void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
-  if (tcp->dest != dst_port)
+void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
+  int tcp_hdr_len = tcp->doff * 4;
+  if ((void *)tcp + tcp_hdr_len + sizeof(struct tlshello) > data_end) {
     return;
+  }
 
+  struct ethhdr *eth = data;
+}
+
+void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   // increment the SYN counter
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
@@ -140,12 +160,12 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
 
 #ifdef DEBUG
   // debug destination filtering
-  bpf_printk("xdp destination IP: %d - %d", ip->daddr, dst_ip);
-  bpf_printk("xdp destination PORT: %d - %d", tcp->dest, dst_port);
+  bpf_printk("TCP destination IP: %d - %d", ip->daddr, dst_ip);
+  bpf_printk("TCP destination PORT: %d - %d", tcp->dest, dst_port);
   // debug source filtering
-  bpf_printk("xdp source IP: %08x", ip->saddr);
-  bpf_printk("xdp source PORT: %04x", tcp->source);
-  bpf_printk("xdp hashmap KEY: %016llx", key);
+  bpf_printk("TCP source IP: %08x", ip->saddr);
+  bpf_printk("TCP source PORT: %04x", tcp->source);
+  bpf_printk("TCP hashmap KEY: %016llx", key);
 #endif
 
   // Pointer to the start of the tcp options

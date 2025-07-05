@@ -19,8 +19,8 @@ import (
 const (
 	config_iface    = "veth-ns"
 	config_dst_ip   = "10.200.1.2"
-	config_dst_port = 8080
-	config_tls      = false
+	config_dst_port = 443
+	config_tls      = true
 	config_tls_cert = "cert.pem"
 	config_tls_key  = "key.pem"
 )
