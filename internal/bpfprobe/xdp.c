@@ -2,6 +2,7 @@
 // +build ignore
 
 // clang-format off
+#include <linux/byteorder/little_endian.h>
 #include <linux/tcp.h>
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
@@ -17,10 +18,13 @@
 #define TCPH_MAXLEN 60
 #define TCPOPT_MAXLEN 40
 
-// tcp destination port, in big endian net format.
-__be16 dst_port = 0xbb01;
-// destination ipv4 addr, in big endian net format.
-__u32 dst_ip = 16777343;
+/* TCP destination port, injected at program load.
+ * Defaults to 443 when not set */
+__be16 dst_port = __constant_htons(443);
+
+/* Destination IP, injected at program load.
+ * Default to 127.0.0.1 when not set */
+__be32 dst_ip = 16777343;
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -38,8 +42,8 @@ struct {
   __type(value, struct tcp_handshake_val);
 } tcp_handshakes SEC(".maps");
 
-// signature of a generic TLS hello, supporting both
-// TLS 1.1, 1.2, 1.3
+/* signature of a generic TLS hello,
+ * supporting both TLS 1.1, 1.2, 1.3 */
 struct __attribute__((packed)) tlshello {
   __u8 recordh_type;
   __u8 recordh_version[2];
@@ -50,13 +54,12 @@ struct __attribute__((packed)) tlshello {
 };
 
 struct tcp_handshake_val {
-  // debug data
-  __be32 src_addr;
-  __be16 src_port;
-
-  // tcp data
+  __be32 seq;      /* TCP seq - used for correlation */
+  __be32 src_addr; /* IP source - used for correlation */
+  __be16 src_port; /* TCP source - used for correlation */
   __be16 window;
   __be16 optlen;
+  __u8 ip_ttl;
   __u8 options[TCPOPT_MAXLEN];
 };
 
@@ -171,7 +174,8 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
-    bpf_printk("TLS HELLO saved at tick: %d", *count);
+    bpf_printk("TLS HELLO saved at tick: %d, tcp.seq: %u", *count,
+               __bpf_ntohl(tcp->seq));
     __sync_fetch_and_add(count, 1);
   }
 }
@@ -184,10 +188,12 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   }
 
   struct tcp_handshake_val val = {
+      .seq = tcp->seq,
       .src_addr = ip->saddr,
       .src_port = tcp->source,
-      .optlen = tcp_hdr_len - sizeof(*tcp),
       .window = tcp->window,
+      .optlen = tcp_hdr_len - sizeof(*tcp),
+      .ip_ttl = ip->ttl,
   };
   __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
 
@@ -205,7 +211,8 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
-    bpf_printk("TCP SYN saved at tick: %d", *count);
+    bpf_printk("TCP SYN saved at tick: %d, tcp.seq: %u", *count,
+               __bpf_ntohl(tcp->seq));
     __sync_fetch_and_add(count, 1);
   }
 
