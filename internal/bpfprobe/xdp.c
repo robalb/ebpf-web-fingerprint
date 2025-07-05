@@ -24,16 +24,6 @@ __u32 dst_ip = 16777343;
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
-// a generic TLS hello, supporting both
-// TLS 1.1, 1.2, 1.3
-struct tlshello {
-  __u8 recordh_type;
-  __be16 recordh_version;
-  __be16 recordh_len;
-  __u8 hproto_type;
-  __u8 hproto_len[3];
-};
-
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __type(key, __u32);
@@ -48,6 +38,17 @@ struct {
   __type(value, struct tcp_handshake_val);
 } tcp_handshakes SEC(".maps");
 
+// signature of a generic TLS hello, supporting both
+// TLS 1.1, 1.2, 1.3
+struct __attribute__((packed)) tlshello {
+  __u8 recordh_type;
+  __u8 recordh_version[2];
+  __u8 recordh_len[2];
+  __u8 hproto_type;
+  __u8 hproto_len[3];
+  __u8 hproto_version[2];
+};
+
 struct tcp_handshake_val {
   // debug data
   __be32 src_addr;
@@ -59,7 +60,7 @@ struct tcp_handshake_val {
   __u8 options[TCPOPT_MAXLEN];
 };
 
-inline __u64 tcp_handshake_make_key(__u32 ip, __u16 port) {
+static __u64 __always_inline tcp_handshake_make_key(__u32 ip, __u16 port) {
   return ((__u64)ip << 16) | port;
 }
 
@@ -71,27 +72,33 @@ static void __always_inline parse_tls_hello(struct iphdr *ip,
 
 SEC("xdp")
 int count_packets(struct xdp_md *ctx) {
-
   // Pointers to packet data
   void *data = (void *)(long)ctx->data;
   void *data_end = (void *)(long)ctx->data_end;
-  void *offset = data;
+  // cursor to keep track of current parsing position
+  void *head = data;
 
-  // --- ETH layer
+  // ++++++++++
+  // ETH layer
+  // ++++++++++
 
-  struct ethhdr *eth = data;
+  struct ethhdr *eth = head;
+  head += sizeof(*eth);
 
-  if ((void *)(eth + 1) > data_end)
+  if (head > data_end)
     return XDP_PASS;
 
   if (bpf_ntohs(eth->h_proto) != ETH_P_IP)
     return XDP_PASS;
 
-  // --- IP layer
+  // ++++++++++
+  // IP layer
+  // ++++++++++
 
-  struct iphdr *ip = (struct iphdr *)(eth + 1);
+  struct iphdr *ip = head;
+  head += sizeof(*ip);
 
-  if ((void *)(ip + 1) > data_end)
+  if (head > data_end)
     return XDP_PASS;
 
   char is_fragment = __bpf_ntohs(ip->frag_off) & (IP_MF | IP_OFFSET);
@@ -101,23 +108,26 @@ int count_packets(struct xdp_md *ctx) {
   if (ip->protocol != IPPROTO_TCP)
     return XDP_PASS;
 
-  int ip_hdr_len = ip->ihl * 4;
-  if (ip_hdr_len < sizeof(struct iphdr)) {
-    return XDP_PASS;
-  }
-
-  if ((void *)ip + ip_hdr_len > data_end) {
-    return XDP_PASS;
-  }
-
   if (ip->daddr != dst_ip)
-    return 0;
+    return XDP_PASS;
 
-  // --- TCP layer
+  __u32 ip_hdr_len = ip->ihl * 4;
+  // sanity check that the packet field is valid
+  if (ip_hdr_len < sizeof(*ip)) {
+    return XDP_PASS;
+  }
+  // Adjust the head to follow the dynamic length
+  // declared in the packet instead of the struct len
+  head += ip_hdr_len - sizeof(*ip);
 
-  struct tcphdr *tcp = (struct tcphdr *)((unsigned char *)ip + ip_hdr_len);
+  // ++++++++++
+  // TCP layer
+  // ++++++++++
 
-  if ((void *)(tcp + 1) > data_end) {
+  struct tcphdr *tcp = head;
+  head += sizeof(*tcp);
+
+  if (head > data_end) {
     return XDP_PASS;
   }
 
@@ -134,26 +144,49 @@ int count_packets(struct xdp_md *ctx) {
 }
 
 void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
-  int tcp_hdr_len = tcp->doff * 4;
-  if ((void *)tcp + tcp_hdr_len + sizeof(struct tlshello) > data_end) {
+  __u32 tcp_hdr_len = tcp->doff * 4;
+  // Sanity check that the packet field is valid
+  if (tcp_hdr_len < sizeof(*tcp)) {
     return;
   }
 
-  struct ethhdr *eth = data;
-}
+  struct tlshello *tls = (void *)tcp + tcp_hdr_len;
+  if ((void *)(tls + 1) > data_end) {
+    return;
+  }
 
-void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
+  int valid_signature =
+      (tls->recordh_type == 0x16 &&      /* TLS content type: handshake */
+       tls->recordh_version[0] == 0x3 && /* TLS 1.0 (3.1) - fossilized value */
+       tls->recordh_version[1] == 0x1 && /* TLS 1.0 (3.1) */
+       tls->hproto_type == 0x1 &&        /* handshake type: client hello */
+       tls->hproto_version[0] == 0x3 &&  /* TLS 1.2 (3.3) - fossilized value */
+       tls->hproto_version[1] == 0x3     /* TLS 1.2 (3.3) */
+      );
+  if (!valid_signature) {
+    return;
+  }
+
   // increment the SYN counter
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
+    bpf_printk("TLS HELLO saved at tick: %d", *count);
     __sync_fetch_and_add(count, 1);
+  }
+}
+
+void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
+  __u16 tcp_hdr_len = tcp->doff * 4;
+  // Sanity check that the packet field is valid
+  if (tcp_hdr_len < sizeof(*tcp)) {
+    return;
   }
 
   struct tcp_handshake_val val = {
       .src_addr = ip->saddr,
       .src_port = tcp->source,
-      .optlen = tcp->doff * 4 - TCPH_MINLEN,
+      .optlen = tcp_hdr_len - sizeof(*tcp),
       .window = tcp->window,
   };
   __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
@@ -168,8 +201,16 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   bpf_printk("TCP hashmap KEY: %016llx", key);
 #endif
 
+  // increment the SYN counter
+  __u32 counterkey = 0;
+  __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
+  if (count) {
+    bpf_printk("TCP SYN saved at tick: %d", *count);
+    __sync_fetch_and_add(count, 1);
+  }
+
   // Pointer to the start of the tcp options
-  __u8 *options = (unsigned char *)tcp + TCPH_MINLEN;
+  __u8 *options = (__u8 *)(tcp + 1);
 
   // This loop is the homemade equivalent of:
   // __builtin_memcpy(val.options, options, val.optlen);
