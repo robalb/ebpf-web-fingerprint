@@ -18,16 +18,26 @@
 #define TCPH_MAXLEN 60
 #define TCPOPT_MAXLEN 40
 
-/* TCP destination port, injected at program load.
- * Defaults to 443 when not set */
-__be16 dst_port = __constant_htons(443);
-
-/* Destination IP, injected at program load.
- * Default to 127.0.0.1 when not set */
-__be32 dst_ip = 16777343;
-
 char __license[] SEC("license") = "Dual MIT/GPL";
 
+/*
+ * TCP destination port, injected at program load.
+ * Defaults to 443 when not set
+ */
+__be16 dst_port = __constant_htons(443);
+
+/*
+ * Destination IP, injected at program load.
+ * Default to 127.0.0.1 when not set
+ */
+__be32 dst_ip = 16777343;
+
+/*
+ * This eBPF map holds a single counter value that is
+ * incremented on every TCP SYN or TLS hello received.
+ * This counter val is only used for debug statystics
+ * and will be removed in the future.
+ */
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __type(key, __u32);
@@ -35,6 +45,11 @@ struct {
   __uint(max_entries, 1);
 } pkt_count SEC(".maps");
 
+/*
+ * This eBPF map holds the packed data extracted from
+ * both TCP SYN and TLS hello packets directed to our
+ * webserver.
+ */
 struct {
   __uint(type, BPF_MAP_TYPE_LRU_HASH);
   __uint(max_entries, 8192);
@@ -42,8 +57,10 @@ struct {
   __type(value, struct tcp_handshake_val);
 } tcp_handshakes SEC(".maps");
 
-/* signature of a generic TLS hello,
- * supporting both TLS 1.1, 1.2, 1.3 */
+/*
+ * signature of a generic TLS hello,
+ * supporting both TLS 1.1, 1.2, 1.3
+ */
 struct __attribute__((packed)) tlshello {
   __u8 recordh_type;
   __u8 recordh_version[2];
@@ -53,13 +70,22 @@ struct __attribute__((packed)) tlshello {
   __u8 hproto_version[2];
 };
 
+/*
+ * Mirror of the vlan_hdr struct defined in linux/if_vlan.h,
+ * which is normally not exposed as part of the linux UAPI.
+ */
+struct _vlan_hdr {
+  __be16 h_vlan_TCI;
+  __be16 h_vlan_encapsulated_proto;
+};
+
 struct tcp_handshake_val {
   __be32 seq;      /* TCP seq - used for correlation */
   __be32 src_addr; /* IP source - used for correlation */
   __be16 src_port; /* TCP source - used for correlation */
-  __be16 window;
-  __be16 optlen;
-  __u8 ip_ttl;
+  __be16 window;   /* TCP window */
+  __u16 optlen;    /* length of the TCP options. In host endianness */
+  __u8 ip_ttl;     /* IP TTL */
   __u8 options[TCPOPT_MAXLEN];
 };
 
@@ -72,6 +98,11 @@ static void __always_inline parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp,
 
 static void __always_inline parse_tls_hello(struct iphdr *ip,
                                             struct tcphdr *tcp, void *data_end);
+
+static __always_inline int proto_is_vlan(__u16 h_proto) {
+  return !!(h_proto == __constant_htons(ETH_P_8021Q) ||
+            h_proto == __constant_htons(ETH_P_8021AD));
+}
 
 SEC("xdp")
 int count_packets(struct xdp_md *ctx) {
@@ -88,10 +119,27 @@ int count_packets(struct xdp_md *ctx) {
   struct ethhdr *eth = head;
   head += sizeof(*eth);
 
-  if (head > data_end)
+  /* Make sure packet is large enough for parsing eth + 2 VLAN headers */
+  if (head + (2 * sizeof(struct _vlan_hdr)) > data_end)
     return XDP_PASS;
 
-  if (bpf_ntohs(eth->h_proto) != ETH_P_IP)
+  __u16 eth_type = eth->h_proto;
+
+  /* handle vlan tagged packets. */
+  if (proto_is_vlan(eth_type)) {
+    struct _vlan_hdr *vlan = head;
+    head += sizeof(*vlan);
+    eth_type = vlan->h_vlan_encapsulated_proto;
+  }
+
+  /* Handle inner (double) VLAN tag */
+  if (proto_is_vlan(eth_type)) {
+    struct _vlan_hdr *vlan = head;
+    head += sizeof(*vlan);
+    eth_type = vlan->h_vlan_encapsulated_proto;
+  }
+
+  if (eth_type != __constant_htons(ETH_P_IP))
     return XDP_PASS;
 
   // ++++++++++
@@ -104,7 +152,7 @@ int count_packets(struct xdp_md *ctx) {
   if (head > data_end)
     return XDP_PASS;
 
-  char is_fragment = __bpf_ntohs(ip->frag_off) & (IP_MF | IP_OFFSET);
+  char is_fragment = ip->frag_off & __constant_htons(IP_MF | IP_OFFSET);
   if (is_fragment)
     return XDP_PASS;
 
@@ -178,6 +226,8 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
                __bpf_ntohl(tcp->seq));
     __sync_fetch_and_add(count, 1);
   }
+
+  // we read the ebpf map, in order to
 }
 
 void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
