@@ -28,7 +28,7 @@ __be16 dst_port = __constant_htons(443);
 
 /*
  * Destination IP, injected at program load.
- * Default to 127.0.0.1 when not set
+ * Defaults to 127.0.0.1 when not set
  */
 __be32 dst_ip = 16777343;
 
@@ -80,6 +80,7 @@ struct _vlan_hdr {
 };
 
 struct tcp_handshake_val {
+  __u64 counter_tick;
   __be32 seq;      /* TCP seq - used for correlation */
   __be32 src_addr; /* IP source - used for correlation */
   __be16 src_port; /* TCP source - used for correlation */
@@ -106,10 +107,9 @@ static __always_inline int proto_is_vlan(__u16 h_proto) {
 
 SEC("xdp")
 int count_packets(struct xdp_md *ctx) {
-  // Pointers to packet data
   void *data = (void *)(long)ctx->data;
   void *data_end = (void *)(long)ctx->data_end;
-  // cursor to keep track of current parsing position
+  /* cursor to keep track of current parsing position */
   void *head = data;
 
   // ++++++++++
@@ -196,7 +196,7 @@ int count_packets(struct xdp_md *ctx) {
 
 void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u32 tcp_hdr_len = tcp->doff * 4;
-  // Sanity check that the packet field is valid
+  /* Sanity check that the packet field is valid */
   if (tcp_hdr_len < sizeof(*tcp)) {
     return;
   }
@@ -227,17 +227,27 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
     __sync_fetch_and_add(count, 1);
   }
 
-  // we read the ebpf map, in order to
+  // TODO(al): how do we read the full packet? where do we store it?
+  // where do we parse it?
+
+  __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
+  struct tcp_handshake_val *tcp_syn =
+      bpf_map_lookup_elem(&tcp_handshakes, &key);
+  if (tcp_syn) {
+    bpf_printk("SYN at: %u HELLO at: %u", __bpf_ntohl(tcp_syn->seq),
+               __bpf_ntohl(tcp->seq));
+  }
 }
 
 void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u16 tcp_hdr_len = tcp->doff * 4;
-  // Sanity check that the packet field is valid
+  /* Sanity check that the packet field is valid */
   if (tcp_hdr_len < sizeof(*tcp)) {
     return;
   }
 
   struct tcp_handshake_val val = {
+      .counter_tick = 0,
       .seq = tcp->seq,
       .src_addr = ip->saddr,
       .src_port = tcp->source,
@@ -261,6 +271,7 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
+    val.counter_tick = *count;
     bpf_printk("TCP SYN saved at tick: %d, tcp.seq: %u", *count,
                __bpf_ntohl(tcp->seq));
     __sync_fetch_and_add(count, 1);

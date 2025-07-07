@@ -103,7 +103,7 @@ func (p *Probe) Lookup(host string, port string) (ret LookupResult, err error) {
 	}
 
 	//read the tcp syn data
-	err = p.objs.TcpHandshakes.Lookup(tcphKey, &tcphVal)
+	err = p.objs.TcpHandshakes.LookupAndDelete(tcphKey, &tcphVal)
 	if err != nil {
 		err = fmt.Errorf("TCP SYN: LOOKUP_ERROR")
 		return

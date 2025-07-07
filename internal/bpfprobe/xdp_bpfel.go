@@ -13,14 +13,15 @@ import (
 )
 
 type xdpTcpHandshakeVal struct {
-	Seq     uint32
-	SrcAddr uint32
-	SrcPort uint16
-	Window  uint16
-	Optlen  uint16
-	IpTtl   uint8
-	Options [40]uint8
-	_       [1]byte
+	CounterTick uint64
+	Seq         uint32
+	SrcAddr     uint32
+	SrcPort     uint16
+	Window      uint16
+	Optlen      uint16
+	IpTtl       uint8
+	Options     [40]uint8
+	_           [1]byte
 }
 
 // loadXdp returns the embedded CollectionSpec for xdp.
