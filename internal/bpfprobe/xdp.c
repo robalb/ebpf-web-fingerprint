@@ -17,6 +17,8 @@
 #define TCPH_MINLEN 20
 #define TCPH_MAXLEN 60
 #define TCPOPT_MAXLEN 40
+// TODO(al): find real value
+#define HELLO_MAXLEN 400
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -80,14 +82,17 @@ struct _vlan_hdr {
 };
 
 struct tcp_handshake_val {
-  __u64 counter_tick;
-  __be32 seq;      /* TCP seq - used for correlation */
+  __u64 syn_tick;
+  __u64 hello_tick;
+  __be32 seq;      /* TCP seq during the TCP SYN - used for correlation */
   __be32 src_addr; /* IP source - used for correlation */
   __be16 src_port; /* TCP source - used for correlation */
   __be16 window;   /* TCP window */
-  __u16 optlen;    /* length of the TCP options. In host endianness */
+  __u16 optlen;    /* length of the TCP options. */
+  __u16 hello_len; /* length of the full hello packet. */
   __u8 ip_ttl;     /* IP TTL */
   __u8 options[TCPOPT_MAXLEN];
+  __u8 hello[HELLO_MAXLEN];
 };
 
 static __u64 __always_inline tcp_handshake_make_key(__u32 ip, __u16 port) {
@@ -200,8 +205,9 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   if (tcp_hdr_len < sizeof(*tcp)) {
     return;
   }
+  void *head = (void *)tcp + tcp_hdr_len;
 
-  struct tlshello *tls = (void *)tcp + tcp_hdr_len;
+  struct tlshello *tls = head;
   if ((void *)(tls + 1) > data_end) {
     return;
   }
@@ -218,24 +224,43 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
     return;
   }
 
-  // increment the SYN counter
-  __u32 counterkey = 0;
-  __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
-  if (count) {
-    bpf_printk("TLS HELLO saved at tick: %d, tcp.seq: %u", *count,
-               __bpf_ntohl(tcp->seq));
-    __sync_fetch_and_add(count, 1);
-  }
-
-  // TODO(al): how do we read the full packet? where do we store it?
-  // where do we parse it?
-
+  /* Read the TCP SYN data associated to this session */
   __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
   struct tcp_handshake_val *tcp_syn =
       bpf_map_lookup_elem(&tcp_handshakes, &key);
-  if (tcp_syn) {
-    bpf_printk("SYN at: %u HELLO at: %u", __bpf_ntohl(tcp_syn->seq),
+  if (!tcp_syn)
+    return;
+
+  /*
+   * We expect that a TCP SYN and the TLS hello that follows in the
+   * same session will have similar sequence numbers
+   */
+  __u32 difference = __bpf_ntohl(tcp->seq) - __bpf_ntohl(tcp_syn->seq);
+  if (difference > 2)
+    return;
+
+  // read the SYN counter
+  __u32 counterkey = 0;
+  __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
+  if (count) {
+    // TODO(al): is this non-atomic update safe?
+    tcp_syn->hello_tick = *count;
+    bpf_printk("TLS HELLO saved at tick: %d, tcp.seq: %u", *count,
                __bpf_ntohl(tcp->seq));
+  }
+
+  __u16 hello_len = data_end - head;
+  if (hello_len > HELLO_MAXLEN) {
+    return;
+  }
+
+  // TODO(al): is this non-atomic update safe?
+  tcp_syn->hello_len = hello_len;
+  __u8 *hello = head;
+
+  // TODO(al): is this non-atomic update safe?
+  for (__u32 i = 0; i <= HELLO_MAXLEN && head + i < data_end; ++i) {
+    tcp_syn->hello[i] = hello[i];
   }
 }
 
@@ -247,12 +272,14 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   }
 
   struct tcp_handshake_val val = {
-      .counter_tick = 0,
+      .syn_tick = 0,
+      .hello_tick = 0,
       .seq = tcp->seq,
       .src_addr = ip->saddr,
       .src_port = tcp->source,
       .window = tcp->window,
       .optlen = tcp_hdr_len - sizeof(*tcp),
+      .hello_len = 0,
       .ip_ttl = ip->ttl,
   };
   __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
@@ -271,7 +298,7 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
-    val.counter_tick = *count;
+    val.syn_tick = *count;
     bpf_printk("TCP SYN saved at tick: %d, tcp.seq: %u", *count,
                __bpf_ntohl(tcp->seq));
     __sync_fetch_and_add(count, 1);
