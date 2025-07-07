@@ -17,8 +17,9 @@
 #define TCPH_MINLEN 20
 #define TCPH_MAXLEN 60
 #define TCPOPT_MAXLEN 40
-// TODO(al): find real value
-#define HELLO_MAXLEN 400
+// TODO(al): find real value. if larger than 400, we'll need a dedicated map to
+// store it. the eBPF max stackisize is 512.
+#define HELLO_MAXLEN 300
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -233,7 +234,7 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
 
   /*
    * We expect that a TCP SYN and the TLS hello that follows in the
-   * same session will have similar sequence numbers
+   * same session will have close TCP sequence numbers
    */
   __u32 difference = __bpf_ntohl(tcp->seq) - __bpf_ntohl(tcp_syn->seq);
   if (difference > 2)
@@ -249,17 +250,24 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
                __bpf_ntohl(tcp->seq));
   }
 
-  __u16 hello_len = data_end - head;
-  if (hello_len > HELLO_MAXLEN) {
-    return;
-  }
+  /*
+   * Length of the TLS hello
+   * Note: only up to HELLO_MAXLEN bytes of the packet will be
+   * copied into the eBPF map. Truncations can be detected by
+   * looking for lenghts > HELLO_MAXLEN
+   * TODO(al): is this non-atomic update safe?
+   */
+  tcp_syn->hello_len = data_end - head;
 
-  // TODO(al): is this non-atomic update safe?
-  tcp_syn->hello_len = hello_len;
+  /* Pointer to the start of the TLS hello */
   __u8 *hello = head;
 
-  // TODO(al): is this non-atomic update safe?
-  for (__u32 i = 0; i <= HELLO_MAXLEN && head + i < data_end; ++i) {
+  /*
+   * Copy the TLS hello from the packet directly into the
+   * eBPF map that was allocated in the previous SYN handler.
+   * TODO(al): is this non-atomic update safe?
+   */
+  for (__u32 i = 0; i < HELLO_MAXLEN && head + i < data_end; ++i) {
     tcp_syn->hello[i] = hello[i];
   }
 }
@@ -304,16 +312,18 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
     __sync_fetch_and_add(count, 1);
   }
 
-  // Pointer to the start of the tcp options
+  /* Pointer to the start of the tcp options */
   __u8 *options = (__u8 *)(tcp + 1);
 
-  // This loop is the homemade equivalent of:
-  // __builtin_memcpy(val.options, options, val.optlen);
-#pragma clang loop unroll(full)
-  for (int i = 0; i < TCPOPT_MAXLEN; i++) {
-    if (i < val.optlen && (void *)options + i < data_end) {
-      val.options[i] = options[i];
-    }
+  /*
+   * Copy the TCP options from the packet into our struct.
+   * Note that the struct is on the stack, this operation
+   * is only possible because the data is small enough.
+   */
+  for (__u32 i = 0;
+       i <= TCPOPT_MAXLEN && i < val.optlen && (void *)options + i < data_end;
+       ++i) {
+    val.options[i] = options[i];
   }
 
   bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);

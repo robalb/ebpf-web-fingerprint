@@ -23,8 +23,8 @@ type xdpTcpHandshakeVal struct {
 	HelloLen  uint16
 	IpTtl     uint8
 	Options   [40]uint8
-	Hello     [400]uint8
-	_         [7]byte
+	Hello     [300]uint8
+	_         [3]byte
 }
 
 // loadXdp returns the embedded CollectionSpec for xdp.
