@@ -1,13 +1,6 @@
 package bpfprobe
 
-type HandshakeTCP struct {
-	MSS        uint16
-	Window     uint16
-	Scale      uint8
-	OptionList []uint16
-}
-
-func parseTCP(t xdpTcpHandshakeVal) HandshakeTCP {
+func parseTCP(t xdpTcpHandshakeVal) (HandshakeIP, HandshakeTCP) {
 	window := netToHost_uint16(t.Window)
 
 	// Optlen doesn't come from a net packet. It's an int defined
@@ -60,10 +53,14 @@ func parseTCP(t xdpTcpHandshakeVal) HandshakeTCP {
 		i += length
 	}
 
-	return HandshakeTCP{
-		MSS:        mss,
-		Window:     window,
-		Scale:      scale,
-		OptionList: optionList,
-	}
+	return HandshakeIP{
+			SourceAddr: t.SrcAddr,
+			TTL:        t.IpTtl,
+		}, HandshakeTCP{
+			SourcePort:   t.SrcPort,
+			Window:       window,
+			Option_MSS:   mss,
+			Option_scale: scale,
+			OptionList:   optionList,
+		}
 }

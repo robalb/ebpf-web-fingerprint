@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -35,7 +34,6 @@ func NewServer(
 	//TODO remove, move all routes in routes.go,
 	//pass all deps via func params, including logger
 	mux.Route("/test", func(r chi.Router) {
-		r.Get("/time", serveTestCtx)
 		r.Get("/id", serveTestFinger(logger, probe))
 		r.Get("/baseline", serveTestBaseline(logger))
 	})
@@ -44,10 +42,10 @@ func NewServer(
 }
 
 type DebugDID struct {
-	Tcp     bpfprobe.HandshakeTCP
-	Sock    string
-	Proto   string
-	Headers string
+	Handshake bpfprobe.Handshake
+	Sock      string
+	Proto     string
+	Headers   string
 }
 
 func serveTestFinger(
@@ -95,26 +93,12 @@ func serveTestFinger(
 		}
 
 		validation.RespondOk(w, DebugDID{
-			Tcp:     lookupResult.TCP,
-			Sock:    sockinfo,
-			Proto:   r.Proto,
-			Headers: readableHeaders,
+			Handshake: lookupResult,
+			Sock:      sockinfo,
+			Proto:     r.Proto,
+			Headers:   readableHeaders,
 		})
 	}
-}
-
-func serveTestCtx(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	select {
-	case <-ctx.Done():
-		log.Println("ctx done, abrupt end. reason:")
-		log.Println(ctx.Err())
-		http.Error(w, ctx.Err().Error(), http.StatusInternalServerError)
-	case <-time.After(4 * time.Second):
-		log.Println("10s elapsed")
-		fmt.Fprintf(w, "10s elapsed")
-	}
-
 }
 
 func serveTestBaseline(
@@ -123,10 +107,10 @@ func serveTestBaseline(
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.Println("Mock request")
 		validation.RespondOk(w, DebugDID{
-			Tcp:     bpfprobe.HandshakeTCP{},
-			Sock:    "mock",
-			Proto:   "mock",
-			Headers: "mock",
+			Handshake: bpfprobe.Handshake{},
+			Sock:      "mock",
+			Proto:     "mock",
+			Headers:   "mock",
 		})
 
 	}

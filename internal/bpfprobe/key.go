@@ -11,7 +11,7 @@ import (
 // the same byte order and endiannes as the ebpf
 // program that generated the hasmap entryies.
 //
-// inline __u64 tcp_handshake_make_key(__u32 ip, __u16 port) {
+// inline __u64 make_key(__u32 ip, __u16 port) {
 //    return ((__u64)ip << 16) | port;
 // }
 //
