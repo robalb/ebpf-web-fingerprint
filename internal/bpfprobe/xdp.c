@@ -12,23 +12,38 @@
 #include "../../headers/bpf_endian.h"
 // clang-format on
 
+char __license[] SEC("license") = "Dual MIT/GPL";
 #define IP_MF 0x2000
 #define IP_OFFSET 0x1FFF
-#define TCPH_MINLEN 20
-#define TCPH_MAXLEN 60
-#define TCPOPT_MAXLEN 40
-// TODO(al): find real value. if larger than 400, we'll need a dedicated map to
-// store it. the eBPF max stackisize is 512.
-#define HELLO_MAXLEN 300
 
-char __license[] SEC("license") = "Dual MIT/GPL";
+/*
+ * Remove to disable TLS fingerprinting.
+ */
+#define PARSE_TLS
+/*
+ * Remove to disable TLS fragment reconstruction.
+ * This feature will allow TLS fingerprinting even
+ * when the client follows anti-DPI practices such
+ * as fragmented TLS hello.
+ * Activating this feature will introduce an
+ * additional map lookup on every TCP packet sent
+ * to the server.
+ */
+#define FOLLOW_FRAGMENTS
+/*
+ * The max bytes of TCP options we are willing to copy
+ */
+#define TCPOPT_MAXLEN 40
+/*
+ * The max bytes of TLS hello we are willing to track and copy
+ */
+#define HELLO_MAXLEN 350
 
 /*
  * TCP destination port, injected at program load.
  * Defaults to 443 when not set
  */
 __be16 dst_port = __constant_htons(443);
-
 /*
  * Destination IP, injected at program load.
  * Defaults to 127.0.0.1 when not set
@@ -50,8 +65,7 @@ struct {
 
 /*
  * This eBPF map holds the packed data extracted from
- * both TCP SYN and TLS hello packets directed to our
- * webserver.
+ * all TCP SYN packets directed to our webserver.
  */
 struct {
   __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -61,10 +75,23 @@ struct {
 } tcp_handshakes SEC(".maps");
 
 /*
+ * This eBPF map holds the packed data extracted from
+ * TLS hello records directed to our webserver, along
+ * with some state-tracking information used to parse
+ * packets across TLS and TCP segmentation.
+ */
+struct {
+  __uint(type, BPF_MAP_TYPE_LRU_HASH);
+  __uint(max_entries, 8192);
+  __type(key, __u64);
+  __type(value, struct tls_handshake_val);
+} tls_handshakes SEC(".maps");
+
+/*
  * signature of a generic TLS hello,
  * supporting both TLS 1.1, 1.2, 1.3
  */
-struct __attribute__((packed)) tlshello {
+struct __attribute__((packed)) hello_signature {
   __u8 recordh_type;
   __u8 recordh_version[2];
   __u8 recordh_len[2];
@@ -82,21 +109,29 @@ struct _vlan_hdr {
   __be16 h_vlan_encapsulated_proto;
 };
 
+struct tls_handshake_val {
+  __be32 syn_seq;       /* seq number of the TCP SYN in this session - used for
+                           correlation */
+  __u16 fragment_size;  /* The size of the first hello record fragment. */
+  __u16 fragment_count; /* Amount of fragments that composed the hello record */
+  __u16 record_len;     /* Declared length of the hello TLS record */
+  __u16 hello_len; /* length of the hello TLS record that was actually saved to
+                 the buffer in this struct */
+  __u8 hello[HELLO_MAXLEN];
+};
+
 struct tcp_handshake_val {
-  __u64 syn_tick;
-  __u64 hello_tick;
+  __u64 tick;
   __be32 seq;      /* TCP seq during the TCP SYN - used for correlation */
   __be32 src_addr; /* IP source - used for correlation */
   __be16 src_port; /* TCP source - used for correlation */
   __be16 window;   /* TCP window */
   __u16 optlen;    /* length of the TCP options. */
-  __u16 hello_len; /* length of the full hello packet. */
   __u8 ip_ttl;     /* IP TTL */
   __u8 options[TCPOPT_MAXLEN];
-  __u8 hello[HELLO_MAXLEN];
 };
 
-static __u64 __always_inline tcp_handshake_make_key(__u32 ip, __u16 port) {
+static __u64 __always_inline make_key(__u32 ip, __u16 port) {
   return ((__u64)ip << 16) | port;
 }
 
@@ -193,8 +228,12 @@ int count_packets(struct xdp_md *ctx) {
 
   if (tcp->syn && !tcp->ack) {
     parse_tcp_syn(ip, tcp, data_end);
-  } else if (!tcp->syn && tcp->ack) {
+  }
+
+  else if (!tcp->syn && tcp->ack) {
+#ifdef PARSE_TLS
     parse_tls_hello(ip, tcp, data_end);
+#endif
   }
 
   return XDP_PASS;
@@ -208,57 +247,42 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   }
   void *head = (void *)tcp + tcp_hdr_len;
 
-  struct tlshello *tls = head;
-  if ((void *)(tls + 1) > data_end) {
+  struct hello_signature *sig = head;
+  if ((void *)(sig + 1) > data_end) {
     return;
   }
 
   int valid_signature =
-      (tls->recordh_type == 0x16 &&      /* TLS content type: handshake */
-       tls->recordh_version[0] == 0x3 && /* TLS 1.0 (3.1) - fossilized value */
-       tls->recordh_version[1] == 0x1 && /* TLS 1.0 (3.1) */
-       tls->hproto_type == 0x1 &&        /* handshake type: client hello */
-       tls->hproto_version[0] == 0x3 &&  /* TLS 1.2 (3.3) - fossilized value */
-       tls->hproto_version[1] == 0x3     /* TLS 1.2 (3.3) */
+      (sig->recordh_type == 0x16 &&      /* TLS content type: handshake */
+       sig->recordh_version[0] == 0x3 && /* TLS 1.0 (3.1) - fossilized value */
+       sig->recordh_version[1] == 0x1 && /* TLS 1.0 (3.1) */
+       sig->hproto_type == 0x1 &&        /* handshake type: client hello */
+       sig->hproto_version[0] == 0x3 &&  /* TLS 1.2 (3.3) - fossilized value */
+       sig->hproto_version[1] == 0x3     /* TLS 1.2 (3.3) */
       );
   if (!valid_signature) {
     return;
   }
 
-  /* Read the TCP SYN data associated to this session */
-  __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
-  struct tcp_handshake_val *tcp_syn =
-      bpf_map_lookup_elem(&tcp_handshakes, &key);
-  if (!tcp_syn)
+  /* Read the TLS data associated to this session */
+  __u64 key = make_key(ip->saddr, tcp->source);
+  struct tls_handshake_val *tls = bpf_map_lookup_elem(&tls_handshakes, &key);
+  if (!tls)
     return;
 
   /*
-   * We expect that a TCP SYN and the TLS hello that follows in the
-   * same session will have close TCP sequence numbers
+   * Sanity check that this TLS hello is immediately following the TCP
+   * handshake by comparing the current TCP seq with the TCP SYN seq.
+   * This is to prevent a flood of fake hello on the same connection.
    */
-  __u32 difference = __bpf_ntohl(tcp->seq) - __bpf_ntohl(tcp_syn->seq);
-  if (difference > 2)
+  __u32 difference = __bpf_ntohl(tcp->seq) - __bpf_ntohl(tls->syn_seq);
+  if (difference > HELLO_MAXLEN)
     return;
 
-  // read the SYN counter
-  __u32 counterkey = 0;
-  __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
-  if (count) {
-    // TODO(al): is this non-atomic update safe?
-    tcp_syn->hello_tick = *count;
-    bpf_printk("TLS HELLO saved at tick: %d, tcp.seq: %u", *count,
-               __bpf_ntohl(tcp->seq));
-  }
-
-  /*
-   * Length of the TLS hello
-   * Note: only up to HELLO_MAXLEN bytes of the packet will be
-   * copied into the eBPF map. Truncations can be detected by
-   * looking for lenghts > HELLO_MAXLEN
-   * TODO(al): is this non-atomic update safe?
-   */
-  tcp_syn->hello_len = data_end - head;
-  bpf_printk("TLS HELLO len: %d", tcp_syn->hello_len);
+  /* TODO(al): is this non-atomic update safe? */
+  tls->hello_len = data_end - head;
+  bpf_printk("TLS HELLO saved with len: %u tcp.seq: %u", tls->hello_len,
+             __bpf_ntohl(tcp->seq));
 
   /* Pointer to the start of the TLS hello */
   __u8 *hello = head;
@@ -269,7 +293,7 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
    * TODO(al): is this non-atomic update safe?
    */
   for (__u32 i = 0; i < HELLO_MAXLEN && head + i < data_end; ++i) {
-    tcp_syn->hello[i] = hello[i];
+    tls->hello[i] = hello[i];
   }
 }
 
@@ -281,17 +305,15 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   }
 
   struct tcp_handshake_val val = {
-      .syn_tick = 0,
-      .hello_tick = 0,
+      .tick = 0,
       .seq = tcp->seq,
       .src_addr = ip->saddr,
       .src_port = tcp->source,
       .window = tcp->window,
       .optlen = tcp_hdr_len - sizeof(*tcp),
-      .hello_len = 0,
       .ip_ttl = ip->ttl,
   };
-  __u64 key = tcp_handshake_make_key(ip->saddr, tcp->source);
+  __u64 key = make_key(ip->saddr, tcp->source);
 
 #ifdef DEBUG
   // debug destination filtering
@@ -307,7 +329,7 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
-    val.syn_tick = *count;
+    val.tick = *count;
     bpf_printk("TCP SYN saved at tick: %d, tcp.seq: %u", *count,
                __bpf_ntohl(tcp->seq));
     __sync_fetch_and_add(count, 1);
@@ -316,11 +338,7 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   /* Pointer to the start of the tcp options */
   __u8 *options = (__u8 *)(tcp + 1);
 
-  /*
-   * Copy the TCP options from the packet into our struct.
-   * Note that the struct is on the stack, this operation
-   * is only possible because the data is small enough.
-   */
+  /* Copy the TCP options from the packet into our struct. */
   for (__u32 i = 0;
        i <= TCPOPT_MAXLEN && i < val.optlen && (void *)options + i < data_end;
        ++i) {
@@ -328,4 +346,18 @@ void parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
   }
 
   bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);
+
+#ifdef PARSE_TLS
+  /* Initialize the TLS map for this connection. Note
+   * that this will occupy most of the eBPF allowed
+   * stack space, which is limited to 512 bytes. */
+  struct tls_handshake_val tls = {
+      .syn_seq = tcp->seq,
+      .fragment_size = 0,
+      .fragment_count = 0,
+      .record_len = 0,
+      .hello_len = 0,
+  };
+  bpf_map_update_elem(&tls_handshakes, &key, &tls, BPF_ANY);
+#endif
 }
