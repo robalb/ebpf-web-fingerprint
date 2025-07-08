@@ -258,6 +258,7 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
    * TODO(al): is this non-atomic update safe?
    */
   tcp_syn->hello_len = data_end - head;
+  bpf_printk("TLS HELLO len: %d", tcp_syn->hello_len);
 
   /* Pointer to the start of the TLS hello */
   __u8 *hello = head;

@@ -48,4 +48,10 @@ to use a specific TLS version:
 
 `https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1`
 
+This project includes some test proxies as submodules in the `test/` folder.
+They are useful to test the behaviour of the system under TLS and TCP fragmentation.
+
+to use a specific TLS version and a test proxy, first launch the proxy. then
+run:
+`https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1 --proxy localhost:4433`
 
