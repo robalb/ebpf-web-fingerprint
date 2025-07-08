@@ -19,7 +19,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 /*
  * Remove to disable TLS fingerprinting.
  */
-#define PARSE_TLS
+// #define PARSE_TLS
 /*
  * Remove to disable TLS fragment reconstruction.
  * This feature will allow TLS fingerprinting even
@@ -228,9 +228,7 @@ int count_packets(struct xdp_md *ctx) {
 
   if (tcp->syn && !tcp->ack) {
     parse_tcp_syn(ip, tcp, data_end);
-  }
-
-  else if (!tcp->syn && tcp->ack) {
+  } else if (!tcp->syn && tcp->ack) {
 #ifdef PARSE_TLS
     parse_tls_hello(ip, tcp, data_end);
 #endif
