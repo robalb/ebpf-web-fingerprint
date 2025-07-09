@@ -19,7 +19,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 /*
  * Remove to disable TLS fingerprinting.
  */
-// #define PARSE_TLS
+#define PARSE_TLS
 /*
  * Remove to disable TLS fragment reconstruction.
  * This feature will allow TLS fingerprinting even
@@ -37,7 +37,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 /*
  * The max bytes of TLS hello we are willing to track and copy
  */
-#define HELLO_MAXLEN 350
+#define HELLO_MAXLEN 336
 
 /*
  * TCP destination port, injected at program load.

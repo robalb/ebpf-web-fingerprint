@@ -30,8 +30,7 @@ type xdpTlsHandshakeVal struct {
 	FragmentCount uint16
 	RecordLen     uint16
 	HelloLen      uint16
-	Hello         [350]uint8
-	_             [2]byte
+	Hello         [336]uint8
 }
 
 // loadXdp returns the embedded CollectionSpec for xdp.

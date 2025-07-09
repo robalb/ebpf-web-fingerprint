@@ -65,22 +65,20 @@ func Run(
 	)
 
 	// Pin the TLS version
-	// this is used during tests
+	// this is just for experimenting different protocols
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
 	}
 
-	// Disable HTTP/2
-	// see: https://go.googlesource.com/go/+/master/src/net/http/doc.go?autodive=0%2F%2F#81
-	// TODO(al) document the rationale behind this
-	tlsNextProto := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
-
 	httpServer := &http.Server{
-		Addr:         net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
-		Handler:      srv,
-		TLSConfig:    tlsConfig,
-		TLSNextProto: tlsNextProto,
+		Addr:      net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
+		Handler:   srv,
+		TLSConfig: tlsConfig,
+		// Disable HTTP/2
+		// see: https://go.googlesource.com/go/+/master/src/net/http/doc.go?autodive=0%2F%2F#81
+		// This is just for experimenting protocols
+		// TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			switch c := c.(type) {
 			case *tls.Conn:
@@ -92,6 +90,11 @@ func Run(
 			return context.WithValue(ctx, remoteAddrKey, c.RemoteAddr().String())
 		},
 	}
+
+	// With keep alible active we run the risk of receiving
+	// requests for an IP+PORT tuple that got garbage collected
+	// in the past.
+	httpServer.SetKeepAlivesEnabled(false)
 
 	//++++++++++++++++++++
 	// Start the webserver

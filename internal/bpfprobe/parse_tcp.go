@@ -57,6 +57,7 @@ func parseTCP(t xdpTcpHandshakeVal) (HandshakeIP, HandshakeTCP) {
 			SourceAddr: t.SrcAddr,
 			TTL:        t.IpTtl,
 		}, HandshakeTCP{
+			tick:         t.Tick,
 			SourcePort:   t.SrcPort,
 			Window:       window,
 			Option_MSS:   mss,

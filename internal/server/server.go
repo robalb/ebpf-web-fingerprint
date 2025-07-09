@@ -41,11 +41,12 @@ func NewServer(
 	return mux
 }
 
-type DebugDID struct {
-	Handshake bpfprobe.Handshake
-	Sock      string
-	Proto     string
-	Headers   string
+type DebugResponse struct {
+	Handshake     bpfprobe.Handshake
+	PacketBacklog uint32
+	Sock          string
+	Proto         string
+	Headers       string
 }
 
 func serveTestFinger(
@@ -85,18 +86,18 @@ func serveTestFinger(
 			return
 		}
 		remoteIP, remotePort, _ := net.SplitHostPort(remoteAddr)
-		logger.Printf("host: %s, port: %s", remoteIP, remotePort)
 		lookupResult, err := p.Lookup(remoteIP, remotePort)
 		if err != nil {
 			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
 			return
 		}
 
-		validation.RespondOk(w, DebugDID{
-			Handshake: lookupResult,
-			Sock:      sockinfo,
-			Proto:     r.Proto,
-			Headers:   readableHeaders,
+		validation.RespondOk(w, DebugResponse{
+			Handshake:     lookupResult,
+			PacketBacklog: uint32(lookupResult.GetPacketBacklog()),
+			Sock:          sockinfo,
+			Proto:         r.Proto,
+			Headers:       readableHeaders,
 		})
 	}
 }
@@ -106,11 +107,12 @@ func serveTestBaseline(
 ) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.Println("Mock request")
-		validation.RespondOk(w, DebugDID{
-			Handshake: bpfprobe.Handshake{},
-			Sock:      "mock",
-			Proto:     "mock",
-			Headers:   "mock",
+		validation.RespondOk(w, DebugResponse{
+			Handshake:     bpfprobe.Handshake{},
+			PacketBacklog: 0,
+			Sock:          "mock",
+			Proto:         "mock",
+			Headers:       "mock",
 		})
 
 	}

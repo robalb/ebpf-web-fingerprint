@@ -28,6 +28,10 @@ type HandshakeTLS struct {
 	FragmentCount uint16
 }
 
+func (h *Handshake) GetPacketBacklog() (delta uint64) {
+	return h.tick_now - h.TCP.tick
+}
+
 func (p *Probe) Lookup(host string, port string) (ret Handshake, err error) {
 	// read the counter metrics
 	var count uint64
@@ -66,10 +70,10 @@ func (p *Probe) Lookup(host string, port string) (ret Handshake, err error) {
 	ret.IP, ret.TCP = parseTCP(tcphVal)
 
 	//read the TLS hello data
-	tls_enabled := false
+	tls_enabled := true
 	if tls_enabled {
 		var tlshVal xdpTlsHandshakeVal
-		err = p.objs.TlsHandshakes.LookupAndDelete(tcphKey, &tlshVal)
+		err = p.objs.TlsHandshakes.Lookup(tcphKey, &tlshVal)
 		if err != nil {
 			err = fmt.Errorf("TLS hello: LOOKUP_ERROR")
 			return
