@@ -29,10 +29,6 @@ type connKeyType struct{}
 
 var connKey = connKeyType{}
 
-type remoteAddrKeyTpe struct{}
-
-var remoteAddrKey = remoteAddrKeyTpe{}
-
 func Run(
 	ctx context.Context,
 	stdout io.Writer,
@@ -92,9 +88,7 @@ func Run(
 			case *net.TCPConn:
 				ctx = context.WithValue(ctx, connKey, c)
 			}
-
-			//TODO(al): remove
-			return context.WithValue(ctx, remoteAddrKey, c.RemoteAddr().String())
+			return ctx
 		},
 	}
 

@@ -14,12 +14,12 @@ func (p *Probe) PushTLSHello(h *tls.ClientHelloInfo) error {
 		SupportedProtos:   h.SupportedProtos,
 		SupportedVersions: h.SupportedVersions,
 	}
-	p.HelloStore.Store(h.Conn.RemoteAddr().String(), parsedHello)
+	p.helloStore.Store(h.Conn.RemoteAddr().String(), parsedHello)
 	return nil
 }
 
 func (p *Probe) LookupTLSHello(key string) (hello HandshakeTLS, ok bool) {
-	ret, ok := p.HelloStore.Load(key)
+	ret, ok := p.helloStore.Load(key)
 	hello, _ = ret.(HandshakeTLS)
 	return hello, ok
 }

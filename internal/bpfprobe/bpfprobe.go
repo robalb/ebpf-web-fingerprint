@@ -13,7 +13,7 @@ import (
 type Probe struct {
 	objs       xdpObjects
 	link       link.Link
-	HelloStore sync.Map
+	helloStore sync.Map
 }
 
 func (p *Probe) Close() {

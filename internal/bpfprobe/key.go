@@ -11,11 +11,9 @@ import (
 // the same byte order and endiannes as the ebpf
 // program that generated the hasmap entryies.
 //
-// inline __u64 make_key(__u32 ip, __u16 port) {
-//    return ((__u64)ip << 16) | port;
-// }
-//
-
+//	inline __u64 make_key(__u32 ip, __u16 port) {
+//	   return ((__u64)ip << 16) | port;
+//	}
 func makeKey(remoteAddr string) (key uint64, ip uint32, port uint16, err error) {
 	ipStr, portStr, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
