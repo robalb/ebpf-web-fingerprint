@@ -1,17 +1,15 @@
 package server
 
 import (
-	"fmt"
-	"log"
-	"net"
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/robalb/deviceid/internal/bpfprobe"
 	"github.com/robalb/deviceid/internal/tcpinfo"
 	"github.com/robalb/deviceid/internal/validation"
+	"log"
+	"net"
+	"net/http"
 )
 
 func NewServer(
@@ -44,7 +42,8 @@ func NewServer(
 type DebugResponse struct {
 	Handshake     bpfprobe.Handshake
 	PacketBacklog uint32
-	Sock          string
+	SockRtt       uint32
+	SockRttvar    uint32
 	Proto         string
 	Headers       string
 }
@@ -69,7 +68,6 @@ func serveTestFinger(
 		if err != nil {
 			http.Error(w, "getsockopt failed", http.StatusInternalServerError)
 		}
-		sockinfo := fmt.Sprintf("rtt: %d, rttvar: %d", info.Rtt, info.Rttvar)
 
 		// get HTTP headers
 		readableHeaders := ""
@@ -79,14 +77,8 @@ func serveTestFinger(
 			readableHeaders += value[0]
 		}
 
-		// get TCP / TLS data
-		remoteAddr, ok := r.Context().Value(remoteAddrKey).(string)
-		if !ok {
-			http.Error(w, "remote addr not in context", http.StatusInternalServerError)
-			return
-		}
-		remoteIP, remotePort, _ := net.SplitHostPort(remoteAddr)
-		lookupResult, err := p.Lookup(remoteIP, remotePort)
+		// get TCP and TLS handshake data
+		lookupResult, err := p.Lookup(r.RemoteAddr)
 		if err != nil {
 			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
 			return
@@ -95,7 +87,8 @@ func serveTestFinger(
 		validation.RespondOk(w, DebugResponse{
 			Handshake:     lookupResult,
 			PacketBacklog: uint32(lookupResult.GetPacketBacklog()),
-			Sock:          sockinfo,
+			SockRtt:       info.Rtt,
+			SockRttvar:    info.Rttvar,
 			Proto:         r.Proto,
 			Headers:       readableHeaders,
 		})
@@ -110,7 +103,8 @@ func serveTestBaseline(
 		validation.RespondOk(w, DebugResponse{
 			Handshake:     bpfprobe.Handshake{},
 			PacketBacklog: 0,
-			Sock:          "mock",
+			SockRtt:       0,
+			SockRttvar:    0,
 			Proto:         "mock",
 			Headers:       "mock",
 		})

@@ -64,11 +64,17 @@ func Run(
 		probe,
 	)
 
-	// Pin the TLS version
-	// this is just for experimenting different protocols
 	tlsConfig := &tls.Config{
+		// Pin the TLS version
+		// this is just for experimenting different protocols
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
+		GetConfigForClient: func(h *tls.ClientHelloInfo) (*tls.Config, error) {
+			// Tap into the clientHello handler, and add it to
+			// the bpfprobe hashmaps
+			probe.PushTLSHello(h)
+			return nil, nil
+		},
 	}
 
 	httpServer := &http.Server{
@@ -87,6 +93,7 @@ func Run(
 				ctx = context.WithValue(ctx, connKey, c)
 			}
 
+			//TODO(al): remove
 			return context.WithValue(ctx, remoteAddrKey, c.RemoteAddr().String())
 		},
 	}

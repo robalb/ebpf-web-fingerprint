@@ -16,7 +16,13 @@ import (
 // }
 //
 
-func makeKey(ipStr, portStr string) (key uint64, ip uint32, port uint16, err error) {
+func makeKey(remoteAddr string) (key uint64, ip uint32, port uint16, err error) {
+	ipStr, portStr, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		err = fmt.Errorf("invalid remoteAddr: %v", err)
+		return
+	}
+
 	ipBytes := net.ParseIP(ipStr).To4()
 	if ipBytes == nil {
 		return 0, 0, 0, fmt.Errorf("invalid IPv4 address: %s", ipStr)

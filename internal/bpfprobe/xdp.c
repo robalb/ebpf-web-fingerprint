@@ -19,7 +19,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 /*
  * Remove to disable TLS fingerprinting.
  */
-#define PARSE_TLS
+// #define PARSE_TLS
 /*
  * Remove to disable TLS fragment reconstruction.
  * This feature will allow TLS fingerprinting even
@@ -29,7 +29,8 @@ char __license[] SEC("license") = "Dual MIT/GPL";
  * additional map lookup on every TCP packet sent
  * to the server.
  */
-#define FOLLOW_FRAGMENTS
+// #define FOLLOW_FRAGMENTS
+
 /*
  * The max bytes of TCP options we are willing to copy
  */
@@ -115,8 +116,8 @@ struct tls_handshake_val {
   __u16 fragment_size;  /* The size of the first hello record fragment. */
   __u16 fragment_count; /* Amount of fragments that composed the hello record */
   __u16 record_len;     /* Declared length of the hello TLS record */
-  __u16 hello_len; /* length of the hello TLS record that was actually saved to
-                 the buffer in this struct */
+  __u16 hello_len; /* Length of the hello TLS record that was actually saved to
+                      the buffer in this struct */
   __u8 hello[HELLO_MAXLEN];
 };
 
@@ -273,13 +274,14 @@ void parse_tls_hello(struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
    * handshake by comparing the current TCP seq with the TCP SYN seq.
    * This is to prevent a flood of fake hello on the same connection.
    */
-  __u32 difference = __bpf_ntohl(tcp->seq) - __bpf_ntohl(tls->syn_seq);
+  __u64 difference = __bpf_ntohl(tcp->seq) - __bpf_ntohl(tls->syn_seq);
   if (difference > HELLO_MAXLEN)
     return;
 
   /* TODO(al): is this non-atomic update safe? */
-  tls->hello_len = data_end - head;
-  bpf_printk("TLS HELLO saved with len: %u tcp.seq: %u", tls->hello_len,
+  __u32 hello_len = data_end - head;
+  tls->hello_len = hello_len;
+  bpf_printk("TLS HELLO saved with len: %u tcp.seq: %u", hello_len,
              __bpf_ntohl(tcp->seq));
 
   /* Pointer to the start of the TLS hello */

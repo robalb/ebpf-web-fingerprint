@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 )
 
 type Probe struct {
-	objs xdpObjects
-	link link.Link
+	objs       xdpObjects
+	link       link.Link
+	HelloStore sync.Map
 }
 
 func (p *Probe) Close() {
