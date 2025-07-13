@@ -2,14 +2,13 @@ package server
 
 import (
 	"log"
-	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/robalb/deviceid/internal/bpfprobe"
-	"github.com/robalb/deviceid/internal/tcpinfo"
+	"github.com/robalb/deviceid/internal/tlswiretap"
 	"github.com/robalb/deviceid/internal/validation"
 	"github.com/robalb/deviceid/pkg/handshake"
 )
@@ -56,35 +55,21 @@ func serveTestFinger(
 ) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// get sockinfo
-		connBase, ok := r.Context().Value(connKey).(net.Conn)
-		if !ok {
-			http.Error(w, "connection not found", http.StatusInternalServerError)
-			return
-		}
-		conn, ok := connBase.(*net.TCPConn)
-		if !ok {
-			http.Error(w, "connection is not tcp", http.StatusInternalServerError)
-			return
-		}
-		info, err := tcpinfo.GetsockoptTCPInfo(conn)
-		if err != nil {
-			http.Error(w, "getsockopt failed", http.StatusInternalServerError)
-			return
-		}
-
-		// get the TLS fingerprint
-		fingerRaw := r.Context().Value(fingerprintKey)
-		if fingerRaw == nil {
-			http.Error(w, "tls fingerprint not in context", http.StatusInternalServerError)
-			return
-		}
-		finger, ok := fingerRaw.(*fingerprint)
-		if !ok {
-			http.Error(w, "tls fingerprint type error", http.StatusInternalServerError)
-			return
-		}
-
-		logger.Printf("fingerprint: %v", *finger.hex.Load())
+		// connBase, ok := r.Context().Value(connKey).(net.Conn)
+		// if !ok {
+		// 	http.Error(w, "connection not found", http.StatusInternalServerError)
+		// 	return
+		// }
+		// conn, ok := connBase.(*net.TCPConn)
+		// if !ok {
+		// 	http.Error(w, "connection is not tcp", http.StatusInternalServerError)
+		// 	return
+		// }
+		// info, err := tcpinfo.GetsockoptTCPInfo(conn)
+		// if err != nil {
+		// 	http.Error(w, "getsockopt failed", http.StatusInternalServerError)
+		// 	return
+		// }
 
 		// get HTTP headers
 		readableHeaders := ""
@@ -97,20 +82,24 @@ func serveTestFinger(
 		h := &handshake.Handshake{}
 
 		// get TCP handshake data
-		err = p.Lookup(r.RemoteAddr, h)
+		err := p.Lookup(h, r.RemoteAddr)
 		if err != nil {
 			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
 			return
 		}
 
-		// get TLS hadnshake data
-		// h.TLS = //..
+		//get TLS handshake data
+		err = tlswiretap.Lookup(h, r)
+		if err != nil {
+			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
+			return
+		}
 
 		validation.RespondOk(w, DebugResponse{
 			Handshake:     *h,
 			PacketBacklog: uint32(h.GetPacketBacklog()),
-			SockRtt:       info.Rtt,
-			SockRttvar:    info.Rttvar,
+			SockRtt:       0,
+			SockRttvar:    0,
 			Proto:         r.Proto,
 			Headers:       readableHeaders,
 		})

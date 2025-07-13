@@ -5,7 +5,7 @@ import (
 	"github.com/robalb/deviceid/pkg/handshake"
 )
 
-func (p *Probe) Lookup(remoteAddr string, h *handshake.Handshake) (err error) {
+func (p *Probe) Lookup(h *handshake.Handshake, remoteAddr string) (err error) {
 	// Read the counter metrics
 	var count uint64
 	err = p.objs.PktCount.Lookup(uint32(0), &count)

@@ -11,10 +11,10 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/robalb/deviceid/internal/bpfprobe"
+	"github.com/robalb/deviceid/internal/tlswiretap"
 )
 
 const (
@@ -25,70 +25,6 @@ const (
 	config_tls_cert = "cert.pem"
 	config_tls_key  = "key.pem"
 )
-
-type connKeyType struct{}
-
-var connKey = connKeyType{}
-
-type fingerprintKeyType struct{}
-
-var fingerprintKey = fingerprintKeyType{}
-
-type fingerprint struct {
-	hex atomic.Pointer[string]
-}
-
-// A "wiretapped" implementation of net.Conn that includes
-// an additional pointer to the client fingerprint.
-type WiredConn struct {
-	net.Conn
-	fingerprint atomic.Pointer[fingerprint]
-}
-
-var _ net.Conn = &WiredConn{}
-
-// A "wiretapped" implementation of net.Listener
-type WiredListener struct {
-	inner net.Listener
-}
-
-func (l *WiredListener) Accept() (net.Conn, error) {
-	c, err := l.inner.Accept()
-	if err != nil {
-		return nil, err
-	}
-	return &WiredConn{Conn: c}, nil
-}
-
-func (l *WiredListener) Close() error {
-	return l.inner.Close()
-}
-
-func (l *WiredListener) Addr() net.Addr {
-	return l.inner.Addr()
-}
-
-var _ net.Listener = &WiredListener{}
-
-func WiretappedListenAndServeTLS(srv *http.Server, certFile, keyFile string) error {
-	addr := srv.Addr
-	if addr == "" {
-		addr = ":https"
-	}
-
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return err
-	}
-
-	defer ln.Close()
-
-	wrappedLn := &WiredListener{
-		inner: ln,
-	}
-
-	return srv.ServeTLS(wrappedLn, certFile, keyFile)
-}
 
 func Run(
 	ctx context.Context,
@@ -122,17 +58,13 @@ func Run(
 	)
 
 	tlsConfig := &tls.Config{
-		// Pin the TLS version
-		// this is just for experimenting different protocols
+		// Pin the TLS version.
+		// This is just for experimenting with different protocols,
+		// it's not part of the business logic.
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
 		GetConfigForClient: func(h *tls.ClientHelloInfo) (*tls.Config, error) {
-			// Tap into the clientHello handler, and add it to
-			// the wiretapped net.Conn this server is based on
-			// https://github.com/bpowers/go-fingerprint-example/
-			fake := "fake fingerprint " + h.Conn.RemoteAddr().String()
-			conn := h.Conn.(*WiredConn)
-			conn.fingerprint.Load().hex.Store(&fake)
+			tlswiretap.PushTLSHello(h)
 			return nil, nil
 		},
 	}
@@ -142,26 +74,11 @@ func Run(
 		Handler:   srv,
 		TLSConfig: tlsConfig,
 		// Disable HTTP/2
+		// This is just for experimenting protocols,
+		// it's not part of the business logic.
 		// see: https://go.googlesource.com/go/+/master/src/net/http/doc.go?autodive=0%2F%2F#81
-		// This is just for experimenting protocols
 		// TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
-		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			var conn *WiredConn
-			switch c := c.(type) {
-			case *tls.Conn:
-				conn = c.NetConn().(*WiredConn)
-				if conn.fingerprint.Load() == nil {
-					logger.Printf("swapping")
-					conn.fingerprint.CompareAndSwap(nil, &fingerprint{})
-				}
-				ctx = context.WithValue(ctx, fingerprintKey, conn.fingerprint.Load())
-				ctx = context.WithValue(ctx, connKey, conn.Conn)
-			case *net.TCPConn:
-				ctx = context.WithValue(ctx, connKey, c)
-			}
-
-			return ctx
-		},
+		ConnContext: tlswiretap.ConnContext,
 	}
 
 	// With keep alive active we run the risk of receiving
@@ -176,8 +93,7 @@ func Run(
 		logger.Printf("listening on %s, TLS enabled: %v\n", httpServer.Addr, config_tls)
 		var err error
 		if config_tls {
-			// err = httpServer.ListenAndServeTLS(config_tls_cert, config_tls_key)
-			err = WiretappedListenAndServeTLS(httpServer, config_tls_cert, config_tls_key)
+			err = tlswiretap.ListenAndServeTLS(httpServer, config_tls_cert, config_tls_key)
 		} else {
 			err = httpServer.ListenAndServe()
 		}
