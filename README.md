@@ -4,8 +4,6 @@ a golang webserver and library for fast TCP & TLS fingerprinting, powered by eBP
 See [this article](https://halb.it/posts/ebpf-fingerprinting-1/)
 for a high-level introduction on the topic.
 
-## Usage
-
 This project is available in two modes:
 
 1. ### Standalone Test Webserver
@@ -42,18 +40,24 @@ openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout key.pem -out cert.pe
 ```
 
 the server will be accessible at 
-`https://10.200.1.2:8080/test/id --unsecure`
+```
+curl https://10.200.1.2:8080/test/id --unsecure
+```
 
 to use a specific TLS version:
 
-`https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1`
+```
+curl https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1
+```
 
 This project includes some test proxies as submodules in the `test/` folder.
 They are useful to test the behaviour of the system under TLS and TCP fragmentation.
 
 to use a specific TLS version and a test proxy, first launch the proxy. then
 run:
-`https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1 --proxy localhost:4433`
+```
+curl https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1 --proxy localhost:4433
+```
 
 
 ## Goals
