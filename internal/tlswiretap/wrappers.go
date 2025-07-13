@@ -9,6 +9,8 @@ import (
 	"github.com/robalb/deviceid/pkg/handshake"
 )
 
+// a replacement for http.ListenAndServeTLS(), that starts a regular
+// http.Server on top of a Wiretapped implementation of net.Listener.
 func ListenAndServeTLS(srv *http.Server, certFile, keyFile string) error {
 	addr := srv.Addr
 	if addr == "" {
@@ -43,6 +45,9 @@ func PushTLSHello(h *tls.ClientHelloInfo) {
 	conn.fingerprint.Load().hex.Store(hshake)
 }
 
+// Handler for http.Server.ConnContext. The Server configured
+// to use this handler must be launched using the custom wrap
+// tlswiretap.ListenAndServeTLS()
 func ConnContext(ctx context.Context, c net.Conn) context.Context {
 	switch c := c.(type) {
 	case *tls.Conn:
