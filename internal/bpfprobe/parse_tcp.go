@@ -1,6 +1,8 @@
 package bpfprobe
 
-func parseTCP(t xdpTcpHandshakeVal) (HandshakeIP, HandshakeTCP) {
+import "github.com/robalb/deviceid/pkg/handshake"
+
+func parseTCP(t xdpTcpHandshakeVal) handshake.HandshakeTCP {
 	window := netToHost_uint16(t.Window)
 
 	// Optlen doesn't come from a net packet. It's an int defined
@@ -53,15 +55,11 @@ func parseTCP(t xdpTcpHandshakeVal) (HandshakeIP, HandshakeTCP) {
 		i += length
 	}
 
-	return HandshakeIP{
-			SourceAddr: t.SrcAddr,
-			TTL:        t.IpTtl,
-		}, HandshakeTCP{
-			tick:         t.Tick,
-			SourcePort:   t.SrcPort,
-			Window:       window,
-			Option_MSS:   mss,
-			Option_scale: scale,
-			OptionList:   optionList,
-		}
+	return handshake.HandshakeTCP{
+		SourcePort:   t.SrcPort,
+		Window:       window,
+		Option_MSS:   mss,
+		Option_scale: scale,
+		OptionList:   optionList,
+	}
 }

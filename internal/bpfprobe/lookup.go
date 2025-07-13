@@ -1,46 +1,11 @@
 package bpfprobe
 
 import (
-	"crypto/tls"
 	"fmt"
+	"github.com/robalb/deviceid/pkg/handshake"
 )
 
-type Handshake struct {
-	tick_now uint64
-	IP       HandshakeIP
-	TCP      HandshakeTCP
-	TLS      HandshakeTLS
-}
-
-type HandshakeIP struct {
-	SourceAddr uint32
-	TTL        uint8
-}
-
-type HandshakeTCP struct {
-	tick         uint64
-	SourcePort   uint16
-	Window       uint16
-	Option_MSS   uint16
-	Option_scale uint8
-	OptionList   []uint16
-}
-
-type HandshakeTLS struct {
-	CipherSuites      []uint16
-	ServerName        string
-	SupportedCurves   []tls.CurveID
-	SupportedPoints   []uint8
-	SignatureSchemes  []tls.SignatureScheme
-	SupportedProtos   []string
-	SupportedVersions []uint16
-}
-
-func (h *Handshake) GetPacketBacklog() (delta uint64) {
-	return h.tick_now - h.TCP.tick
-}
-
-func (p *Probe) Lookup(remoteAddr string) (ret Handshake, err error) {
+func (p *Probe) Lookup(remoteAddr string, h *handshake.Handshake) (err error) {
 	// Read the counter metrics
 	var count uint64
 	err = p.objs.PktCount.Lookup(uint32(0), &count)
@@ -48,7 +13,7 @@ func (p *Probe) Lookup(remoteAddr string) (ret Handshake, err error) {
 		err = fmt.Errorf("counter map lookup error: %v", err)
 		return
 	}
-	ret.tick_now = count
+	h.SetTickNow(count)
 
 	// Prepare the key to read from the eBPF maps
 	tcphKey, keyAddr, keyPort, err := makeKey(remoteAddr)
@@ -75,15 +40,11 @@ func (p *Probe) Lookup(remoteAddr string) (ret Handshake, err error) {
 		return
 	}
 
-	ret.IP, ret.TCP = parseTCP(tcphVal)
-
-	// Read the TLS data
-	tlsVal, ok := p.LookupTLSHello(remoteAddr)
-	if !ok {
-		err = fmt.Errorf("TLS hello lookup failed: %v", tlsVal)
-		return
+	h.IP = handshake.HandshakeIP{
+		SourceAddr: tcphVal.SrcAddr,
+		TTL:        tcphVal.IpTtl,
 	}
-	ret.TLS = tlsVal
+	h.TCP = parseTCP(tcphVal)
 
 	return
 }

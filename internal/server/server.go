@@ -1,15 +1,17 @@
 package server
 
 import (
+	"log"
+	"net"
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/robalb/deviceid/internal/bpfprobe"
 	"github.com/robalb/deviceid/internal/tcpinfo"
 	"github.com/robalb/deviceid/internal/validation"
-	"log"
-	"net"
-	"net/http"
+	"github.com/robalb/deviceid/pkg/handshake"
 )
 
 func NewServer(
@@ -40,7 +42,7 @@ func NewServer(
 }
 
 type DebugResponse struct {
-	Handshake     bpfprobe.Handshake
+	Handshake     handshake.Handshake
 	PacketBacklog uint32
 	SockRtt       uint32
 	SockRttvar    uint32
@@ -67,7 +69,22 @@ func serveTestFinger(
 		info, err := tcpinfo.GetsockoptTCPInfo(conn)
 		if err != nil {
 			http.Error(w, "getsockopt failed", http.StatusInternalServerError)
+			return
 		}
+
+		// get the TLS fingerprint
+		fingerRaw := r.Context().Value(fingerprintKey)
+		if fingerRaw == nil {
+			http.Error(w, "tls fingerprint not in context", http.StatusInternalServerError)
+			return
+		}
+		finger, ok := fingerRaw.(*fingerprint)
+		if !ok {
+			http.Error(w, "tls fingerprint type error", http.StatusInternalServerError)
+			return
+		}
+
+		logger.Printf("fingerprint: %v", *finger.hex.Load())
 
 		// get HTTP headers
 		readableHeaders := ""
@@ -77,16 +94,21 @@ func serveTestFinger(
 			readableHeaders += value[0]
 		}
 
-		// get TCP and TLS handshake data
-		lookupResult, err := p.Lookup(r.RemoteAddr)
+		h := &handshake.Handshake{}
+
+		// get TCP handshake data
+		err = p.Lookup(r.RemoteAddr, h)
 		if err != nil {
 			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
 			return
 		}
 
+		// get TLS hadnshake data
+		// h.TLS = //..
+
 		validation.RespondOk(w, DebugResponse{
-			Handshake:     lookupResult,
-			PacketBacklog: uint32(lookupResult.GetPacketBacklog()),
+			Handshake:     *h,
+			PacketBacklog: uint32(h.GetPacketBacklog()),
 			SockRtt:       info.Rtt,
 			SockRttvar:    info.Rttvar,
 			Proto:         r.Proto,
@@ -101,7 +123,7 @@ func serveTestBaseline(
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.Println("Mock request")
 		validation.RespondOk(w, DebugResponse{
-			Handshake:     bpfprobe.Handshake{},
+			Handshake:     handshake.Handshake{},
 			PacketBacklog: 0,
 			SockRtt:       0,
 			SockRttvar:    0,
