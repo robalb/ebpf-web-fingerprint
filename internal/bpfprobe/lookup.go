@@ -40,6 +40,8 @@ func (p *Probe) Lookup(h *handshake.Handshake, remoteAddr string) (err error) {
 		return
 	}
 
+	h.SetTickPacket(tcphVal.Tick)
+
 	h.IP = handshake.HandshakeIP{
 		SourceAddr: tcphVal.SrcAddr,
 		TTL:        tcphVal.IpTtl,
