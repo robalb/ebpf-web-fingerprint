@@ -1,14 +1,16 @@
 
 # Roadmap
 
-public interface:
+## backlog
 
-New()
+- Automatic TLS management
+- env variable configuration
+- Containerized builds
+- Define a public interface:
 
-Lookup(srcAddr srcPort)
-LookupFromCtx(conn ctx)
-
-PushTLSHello(tls.clienthelloinfo)
-PushCtx
-
+        ListenAndServe()
+        Lookup(r *http.Request) (Handshake)
+        //probes
+        http.Server.ConnContext
+        tls.Config.GetConfigForClient
 

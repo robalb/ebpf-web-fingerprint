@@ -1,29 +1,28 @@
 # eBPF web fingerprint
 
-a golang webserver for fast TCP & TLS fingerprinting, powered by eBPF.
+a golang webserver and library for fast TCP & TLS fingerprinting, powered by eBPF.
 See [this article](https://halb.it/posts/ebpf-fingerprinting-1/)
 for a high-level introduction on the topic.
 
-## Goals
+## Usage
 
-This is currently a test playground. 
-It's a demonstrative web server that echoes back to the visitor informations about their 
-TCP and TLS handshake. 
+This project is available in two modes:
 
-The end goal is to abstract the core functionality into a golang library that can be 
-easily imported and used from any existing golang webserver or reverse proxy.
-This could be extremely valuable for integrating low-level fingerprinting into existing 
-reverse proxies such as traefik or caddy, by using their regular plugin system.
+1. ### Standalone Test Webserver
+A simple webserver that echoes back detailed information about a
+visitor's TCP and TLS handshakes.
+It can be used to experiment with fingerprintig detection and evasion techniques,
+or as a reference implementation of the fingerprint library.
 
-This project does not attempt to implement any specific fingerprint
-standard or system.
-It simply makes raw handshake data accessible in user space.
-The choice of what to do with this data should be left to the end user,
-since it heavily depends on the project requirements.
+2. ### Golang fingerprint library
+A reusable library that can be embedded into existing Golang webservers or
+reverse proxies.
+It exposes low-level metadata about incoming client connections, enabling advanced fingerprinting and bot detection strategies.
 
-## Run the demo server
 
-To build and run the demo server in a dedicated network namespace:
+## Run the Test Webserver
+
+To build and run the Webserver in a dedicated network namespace:
 ```
 make testns_run
 ```
@@ -55,4 +54,16 @@ They are useful to test the behaviour of the system under TLS and TCP fragmentat
 to use a specific TLS version and a test proxy, first launch the proxy. then
 run:
 `https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1 --proxy localhost:4433`
+
+
+## Goals
+
+Note that the main goal of this project is to make 
+raw handshake data easily accessible from a regular golang webserver,
+with as little overhead as possible.
+
+The implementation of specific fingerprint standards or techniques is out of 
+scope. The end user should be left with the freedom to implement the system
+they want, based on their project requirements.
+
 
