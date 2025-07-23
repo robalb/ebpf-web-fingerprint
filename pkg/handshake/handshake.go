@@ -33,6 +33,7 @@ type HandshakeTLS struct {
 	SignatureSchemes  []tls.SignatureScheme
 	SupportedProtos   []string
 	SupportedVersions []uint16
+	Extensions        []uint16
 }
 
 func (h *Handshake) GetPacketBacklog() (delta uint64) {

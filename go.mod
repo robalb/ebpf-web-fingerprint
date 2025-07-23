@@ -1,6 +1,6 @@
 module github.com/robalb/deviceid
 
-go 1.23.3
+go 1.24.5
 
 require (
 	github.com/cilium/ebpf v0.18.0

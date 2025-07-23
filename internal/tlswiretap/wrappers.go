@@ -40,6 +40,7 @@ func PushTLSHello(h *tls.ClientHelloInfo) {
 		SignatureSchemes:  h.SignatureSchemes,
 		SupportedProtos:   h.SupportedProtos,
 		SupportedVersions: h.SupportedVersions,
+		Extensions:        h.Extensions,
 	}
 	conn := h.Conn.(*WiredConn)
 	conn.fingerprint.Load().hex.Store(hshake)
