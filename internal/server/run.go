@@ -10,20 +10,51 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
+	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/robalb/deviceid/internal/bpfprobe"
 	"github.com/robalb/deviceid/internal/tlswiretap"
+	"golang.org/x/sync/errgroup"
 )
 
-const (
-	config_iface    = "veth-ns"
-	config_dst_ip   = "10.200.1.2"
-	config_dst_port = 443
-	config_tls      = true
-	config_tls_cert = "cert.pem"
-	config_tls_key  = "key.pem"
+func getenvStr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func getenvBool(key string, def bool) bool {
+	if v := os.Getenv(key); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err == nil {
+			return b
+		}
+	}
+	return def
+}
+
+func getenvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return def
+}
+
+var (
+	config_iface     = getenvStr("IFACE", "veth-ns")
+	config_dst_ip    = getenvStr("DST_IP", "10.200.1.2")
+	config_dst_port  = getenvInt("DST_PORT", 443)
+	config_tls       = getenvBool("TLS", true)
+	config_certmagic = getenvBool("CERTMAGIC", false)
+	// Hardcoded tls keys. Will be used when certmagic = false
+	config_tls_cert = getenvStr("TLS_CERT", "cert.pem")
+	config_tls_key  = getenvStr("TLS_KEY", "key.pem")
 )
 
 func Run(
@@ -33,7 +64,10 @@ func Run(
 	args []string,
 	getenv func(string) string,
 ) error {
-	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
+	ctx, cancel := signal.NotifyContext(ctx,
+		syscall.SIGINT,  // ctr-C from the terminal
+		syscall.SIGTERM, // terminate signal from Docker / kubernetes
+	)
 	defer cancel()
 
 	//+++++++++++++++++++++++
@@ -42,7 +76,7 @@ func Run(
 
 	// Init logging
 	logger := log.New(stdout, "", log.Flags())
-	logger.Println("starting... ")
+	logger.Println("tcp&tls fingerprint demo server starting... ")
 
 	//init ebpf probe
 	probe, err := bpfprobe.New(logger, config_iface, config_dst_ip, config_dst_port)
@@ -51,7 +85,27 @@ func Run(
 	}
 	defer probe.Close()
 
-	// Init the server handlers
+	// Init tls management
+	magic := certmagic.NewDefault()
+	acme := certmagic.NewACMEIssuer(magic, certmagic.DefaultACME)
+
+	// Define the acmechallenge http server and fallback behaviour
+	var acmeServer *http.Server
+	if config_certmagic && config_tls {
+		acmeMux := http.NewServeMux()
+		acmeMux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+			fmt.Fprintf(w, "Http endpoint. TODO: redirect to HTTPS")
+			// Redirect to HTTPS all HTTP requests that are not acme challenges
+			// target := "https://" + req.Host + req.URL.RequestURI()
+			// http.Redirect(w, req, target, http.StatusMovedPermanently)
+		})
+		acmeServer = &http.Server{
+			Addr:    ":80",
+			Handler: acme.HTTPChallengeHandler(acmeMux),
+		}
+	}
+
+	// Define the server handlers
 	srv := NewServer(
 		logger,
 		probe,
@@ -60,22 +114,24 @@ func Run(
 	tlsConfig := &tls.Config{
 		// Pin the TLS version.
 		// This is just for experimenting with different protocols,
-		// it's not part of the business logic.
+		// it's not a required step for tls or tcp fingerprinting
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
 		GetConfigForClient: func(h *tls.ClientHelloInfo) (*tls.Config, error) {
 			tlswiretap.PushTLSHello(h)
 			return nil, nil
 		},
+		GetCertificate: magic.GetCertificate,
 	}
 
 	httpServer := &http.Server{
 		Addr:      net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
 		Handler:   srv,
 		TLSConfig: tlsConfig,
-		// Disable HTTP/2
-		// This is just for experimenting protocols,
-		// it's not part of the business logic.
+
+		// Disable HTTP/2.
+		// This is just for experimenting with protocols,
+		// it's not required for tls or tcp fingerprinting
 		// see: https://go.googlesource.com/go/+/master/src/net/http/doc.go?autodive=0%2F%2F#81
 		// TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 		ConnContext: tlswiretap.ConnContext,
@@ -87,10 +143,14 @@ func Run(
 	httpServer.SetKeepAlivesEnabled(false)
 
 	//++++++++++++++++++++
-	// Start the webserver
+	// Start all modules
 	//++++++++++++++++++++
-	go func() {
-		logger.Printf("listening on %s, TLS enabled: %v\n", httpServer.Addr, config_tls)
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	//start the main fingerprint server
+	g.Go(func() error {
+		logger.Printf("fingerprint http server: listening on %s, TLS enabled: %v\n", httpServer.Addr, config_tls)
 		var err error
 		if config_tls {
 			err = tlswiretap.ListenAndServeTLS(httpServer, config_tls_cert, config_tls_key)
@@ -98,29 +158,70 @@ func Run(
 			err = httpServer.ListenAndServe()
 		}
 
-		if err != nil && err != http.ErrServerClosed {
-			fmt.Fprintf(stderr, "error listening and serving: %s\n", err)
+		if err == http.ErrServerClosed {
+			return nil
 		}
-	}()
+		return err
+	})
 
-	//++++++++++++++++++
-	// Graceful shutdown
-	//++++++++++++++++++
-	var wg sync.WaitGroup
-	// Webserver graceful shutdown
-	wg.Add(1)
+	// start the HTTP handler that takes care of HTTP acme challenges and HTTPS redirection
+	if acmeServer != nil {
+		g.Go(func() error {
+			logger.Printf("acme http server: listening on :80\n")
+			err := acmeServer.ListenAndServe()
+			if err == http.ErrServerClosed {
+				return nil
+			}
+			return err
+		})
+	}
+
+	//++++++++++++++++++++++++++++++++++
+	// Graceful Shutdown for all modules
+	//++++++++++++++++++++++++++++++++++
+
 	go func() {
-		defer wg.Done()
+		// Block until one of the modules in the error group throws an error,
+		// or the parent context is cancelled (ctrl+c | SIGTERM)
 		<-ctx.Done()
-		logger.Println("Gracefully shutting down webserver...")
-		shutdownCtx := context.Background()
-		shutdownCtx, cancel := context.WithTimeout(shutdownCtx, 10*time.Second)
-		defer cancel()
-		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(stderr, "error shutting down http server: %s\n", err)
+		logger.Printf("Preparing to terminate all modules.")
+
+		// Shutdown the acme webserver if it exists
+		if acmeServer != nil {
+			logger.Printf("acme server: terminating...")
+			shutdownCtx, cancel := context.WithTimeout(
+				context.Background(),
+				10*time.Second,
+			)
+			err := acmeServer.Shutdown(shutdownCtx)
+			cancel()
+			if err != nil {
+				logger.Printf("acme server: error while terminating: %s\n", err)
+			} else {
+				logger.Printf("acme server terminated.")
+			}
 		}
+
+		// Shutdown the fingerprint webserver,
+		// after the acme webserver is closed
+		logger.Printf("fingerprint server: terminating...")
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			10*time.Second,
+		)
+		err := httpServer.Shutdown(shutdownCtx)
+		cancel()
+		if err != nil {
+			logger.Printf("fingerprint server: error while terminating: %s\n", err)
+		} else {
+			logger.Printf("fingerprint server terminated.")
+		}
+
 	}()
 
-	wg.Wait()
-	return nil
+	err = g.Wait()
+	if err != nil {
+		logger.Printf("errgroup terminated with error: %s\n", err)
+	}
+	return err
 }
