@@ -21,7 +21,10 @@ It exposes low-level metadata about incoming client connections, enabling advanc
 ## Run the Test Webserver
 
 To build and run the Webserver in a dedicated network namespace:
-```
+```bash
+# create a dedicated network namespace
+make testns_setup
+# compile and run the test server in the dedicated namespace
 make testns_run
 ```
 

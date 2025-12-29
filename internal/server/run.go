@@ -51,7 +51,7 @@ var (
 	config_dst_ip    = getenvStr("DST_IP", "10.200.1.2")
 	config_dst_port  = getenvInt("DST_PORT", 443)
 	config_tls       = getenvBool("TLS", true)
-	config_certmagic = getenvBool("CERTMAGIC", false)
+	config_certmagic = getenvBool("CERTMAGIC", true)
 	// Hardcoded tls keys. Will be used when certmagic = false
 	config_tls_cert = getenvStr("TLS_CERT", "cert.pem")
 	config_tls_key  = getenvStr("TLS_KEY", "key.pem")
@@ -184,7 +184,7 @@ func Run(
 		// Block until one of the modules in the error group throws an error,
 		// or the parent context is cancelled (ctrl+c | SIGTERM)
 		<-ctx.Done()
-		logger.Printf("Preparing to terminate all modules.")
+		logger.Printf("Shutting down. This was caused by either an error in one of the running webserver modules, or by a shutdown request: ctrl+c or SIGTERM")
 
 		// Shutdown the acme webserver if it exists
 		if acmeServer != nil {
