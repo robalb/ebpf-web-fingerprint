@@ -6,13 +6,15 @@ for a high-level introduction on the topic.
 
 This project is available in two modes:
 
-1. ### Standalone Demo Web Server
+- [Standalone Demo Web Server](#run-the-demo-webserver)
+
 A simple webserver that echoes back detailed information about a
 visitor's TCP and TLS handshakes.
 It can be used to experiment with fingerprintig detection and evasion techniques,
 or as a reference for how to use the fingerprint library.
 
-2. ### Golang fingerprint library
+- [Golang fingerprint library](#using-the-fingerprint-library)
+
 A reusable library that can be embedded into existing Golang webservers or
 reverse proxies.
 It exposes low-level metadata about incoming client connections, enabling advanced fingerprinting and bot detection strategies.
@@ -38,7 +40,7 @@ sudo apt install linux-headers-$(uname -r)
 ```
 You can ask your favourite LLM for help with the installation on other linux distributions.
 
-### Run the demo server in TLS mode and with TLS fingerprinting
+## Run the demo server in TLS mode
 
 first, you must generate a valid self-signed certificate for the ip `10.200.1.2`:
 
@@ -94,7 +96,7 @@ This is the complete list of environment variables you can use, and their defaul
 | `TLS_KEY`   | `key.pem`    | Path to TLS private key file. Used only when `TLS="true"` and `CERTMAGIC="false"`.                                                             |
 
 
-# Using the fingerprint library
+## Using the fingerprint library
 
 If you are interested in ways to add ebpf-based fingerprint capabilities to a web server, 
 it is extremely unlikely that you want a high-level and opinionated API that starts a 
