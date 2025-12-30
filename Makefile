@@ -23,7 +23,7 @@ testns_teardown:
 
 .PHONY: build
 build: $(EBPF_DIR)/xdp_bpfel.go
-	$(GO_BUILD_FLAGS) go build -o $(GO_BINARY) ./cmd/deviceid/main.go
+	$(GO_BUILD_FLAGS) go build -o $(GO_BINARY) ./cmd/demoserver/main.go
 
 # Build eBPF object and Go bindings.
 # We use our own libbpf API headers and Linux UAPI headers to avoid

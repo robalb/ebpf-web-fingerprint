@@ -1,4 +1,4 @@
-package server
+package demoserver
 
 import (
 	"context"
@@ -49,14 +49,23 @@ func getenvInt(key string, def int) int {
 var (
 	config_iface     = getenvStr("IFACE", "veth-ns")
 	config_dst_ip    = getenvStr("DST_IP", "10.200.1.2")
-	config_dst_port  = getenvInt("DST_PORT", 443)
-	config_tls       = getenvBool("TLS", true)
+	config_dst_port  = getenvInt("DST_PORT", 80)
+	config_tls       = getenvBool("TLS", false)
 	config_certmagic = getenvBool("CERTMAGIC", true)
 	// Hardcoded tls keys. Will be used when certmagic = false
 	config_tls_cert = getenvStr("TLS_CERT", "cert.pem")
 	config_tls_key  = getenvStr("TLS_KEY", "key.pem")
 )
 
+// Run starts the demo fingerprint server.
+// The behaviour of the demo server depends on the following env variables:
+// IFACE     network interface the server will listen on
+// DST_IP    ip on the net interface the server will listen on
+// DST_PORT  port the server will listen on (when certmagic is disabled)
+// TLS       wether the server should run in TLS mode, with TLS fingerprinting
+// CERTMAGIC wether to enable automatic TLS certificate renewal, using certmagic
+// TLS_CERT  path to the TLS cert file, used when certmagic=false
+// TLS_KEY   path to the TLS key file, used when certmagic=false
 func Run(
 	ctx context.Context,
 	stdout io.Writer,
@@ -76,7 +85,7 @@ func Run(
 
 	// Init logging
 	logger := log.New(stdout, "", log.Flags())
-	logger.Println("tcp&tls fingerprint demo server starting... ")
+	logger.Println("fingerprint demo server starting... ")
 
 	//init ebpf probe
 	probe, err := bpfprobe.New(logger, config_iface, config_dst_ip, config_dst_port)
@@ -85,13 +94,13 @@ func Run(
 	}
 	defer probe.Close()
 
-	// Init tls management
-	magic := certmagic.NewDefault()
-	acme := certmagic.NewACMEIssuer(magic, certmagic.DefaultACME)
-
-	// Define the acmechallenge http server and fallback behaviour
+	// Init tls management, optional - not required for TLS or TCP fingerprinting
 	var acmeServer *http.Server
+	var magic *certmagic.Config
 	if config_certmagic && config_tls {
+		magic = certmagic.NewDefault()
+		acme := certmagic.NewACMEIssuer(magic, certmagic.DefaultACME)
+		// Define the acmechallenge http server and fallback behaviour
 		acmeMux := http.NewServeMux()
 		acmeMux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 			fmt.Fprintf(w, "Http endpoint. TODO: redirect to HTTPS")
@@ -105,8 +114,7 @@ func Run(
 		}
 	}
 
-	// Define the server handlers
-	srv := NewServer(
+	httpHandler := NewRouter(
 		logger,
 		probe,
 	)
@@ -121,20 +129,24 @@ func Run(
 			tlswiretap.PushTLSHello(h)
 			return nil, nil
 		},
-		GetCertificate: magic.GetCertificate,
+	}
+	if magic != nil {
+		// activate cermagic - optional, not required for TLS or TCP fingerprinting
+		tlsConfig.GetCertificate = magic.GetCertificate
 	}
 
 	httpServer := &http.Server{
-		Addr:      net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
-		Handler:   srv,
-		TLSConfig: tlsConfig,
-
+		Addr:    net.JoinHostPort("", fmt.Sprintf("%d", config_dst_port)),
+		Handler: httpHandler,
 		// Disable HTTP/2.
 		// This is just for experimenting with protocols,
 		// it's not required for tls or tcp fingerprinting
 		// see: https://go.googlesource.com/go/+/master/src/net/http/doc.go?autodive=0%2F%2F#81
 		// TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
-		ConnContext: tlswiretap.ConnContext,
+	}
+	if config_tls {
+		httpServer.TLSConfig = tlsConfig
+		httpServer.ConnContext = tlswiretap.ConnContext
 	}
 
 	// With keep alive active we run the risk of receiving

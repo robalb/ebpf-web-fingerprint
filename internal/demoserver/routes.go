@@ -1,4 +1,4 @@
-package server
+package demoserver
 
 import (
 	"log"
@@ -13,7 +13,7 @@ import (
 	"github.com/robalb/deviceid/pkg/handshake"
 )
 
-func NewServer(
+func NewRouter(
 	logger *log.Logger,
 	probe *bpfprobe.Probe,
 ) http.Handler {
@@ -30,8 +30,6 @@ func NewServer(
 		MaxAge:           300, // Maximum value not ignored by any of major browsers
 	}))
 
-	//TODO remove, move all routes in routes.go,
-	//pass all deps via func params, including logger
 	mux.Route("/test", func(r chi.Router) {
 		r.Get("/id", serveTestFinger(logger, probe))
 		r.Get("/baseline", serveTestBaseline(logger))
@@ -89,10 +87,12 @@ func serveTestFinger(
 		}
 
 		//get TLS handshake data
-		err = tlswiretap.Lookup(h, r)
-		if err != nil {
-			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
-			return
+		if config_tls {
+			err = tlswiretap.Lookup(h, r)
+			if err != nil {
+				validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		validation.RespondOk(w, DebugResponse{

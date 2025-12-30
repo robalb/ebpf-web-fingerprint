@@ -10,7 +10,7 @@ This project is available in two modes:
 A simple webserver that echoes back detailed information about a
 visitor's TCP and TLS handshakes.
 It can be used to experiment with fingerprintig detection and evasion techniques,
-or as a reference implementation of the fingerprint library.
+or as a reference for how to use the fingerprint library.
 
 2. ### Golang fingerprint library
 A reusable library that can be embedded into existing Golang webservers or
@@ -29,10 +29,10 @@ make testns_run
 ```
 
 the server will be accessible at 
-`http://10.200.1.2:8080/test/id`
+`https://10.200.1.2/test/id`
 
-Note that the build process currently requires the Linux UAPI headers to be 
-installed on your system.
+Note that the build process currently requires the Linux UAPI headers to be installed on your system.
+This will change in the future.
 
 ### Run the demo server, with TLS
 
@@ -44,13 +44,13 @@ openssl req -x509 -nodes -days 730 -newkey rsa:2048 -keyout key.pem -out cert.pe
 
 the server will be accessible at 
 ```
-curl https://10.200.1.2:8080/test/id --unsecure
+curl https://10.200.1.2/test/id --insecure
 ```
 
 to use a specific TLS version:
 
 ```
-curl https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1
+curl https://10.200.1.2/test/id --insecure --tlsv1.1 --tls-max 1.1
 ```
 
 This project includes some test proxies as submodules in the `test/` folder.
@@ -59,7 +59,7 @@ They are useful to test the behaviour of the system under TLS and TCP fragmentat
 to use a specific TLS version and a test proxy, first launch the proxy. then
 run:
 ```
-curl https://10.200.1.2:8080/test/id --unsecure --tlsv1.1 --tls-max 1.1 --proxy localhost:4433
+curl https://10.200.1.2/test/id --insecure --tlsv1.1 --tls-max 1.1 --proxy localhost:4433
 ```
 
 
