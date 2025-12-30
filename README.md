@@ -1,7 +1,6 @@
 # eBPF web fingerprint
 
-A golang webserver and library for fast TCP & TLS fingerprinting, powered by eBPF.
-
+A golang webserver and library for fast TCP & TLS fingerprinting, powered by eBPF.  
 See [this article](https://halb.it/posts/ebpf-fingerprinting-1/)
 for a high-level introduction on the topic.
 
