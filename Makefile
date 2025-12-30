@@ -1,3 +1,4 @@
+
 EBPF_DIR := internal/bpfprobe
 EBPF_PKG := bpfprobe
 BPF2GO := github.com/cilium/ebpf/cmd/bpf2go
@@ -5,13 +6,12 @@ HEADERS_DIR := headers
 GO_BINARY := main
 GO_BUILD_FLAGS := CGO_ENABLED=0 GOARCH=amd64
 
-
 .PHONY: all
 all: build
 
 .PHONY: testns_run
 testns_run: build
-	sudo ip netns exec testns ./$(GO_BINARY)
+	sudo -E ip netns exec testns ./$(GO_BINARY)
 
 .PHONY: testns_setup
 testns_setup:

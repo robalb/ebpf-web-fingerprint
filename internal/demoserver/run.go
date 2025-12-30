@@ -49,9 +49,9 @@ func getenvInt(key string, def int) int {
 var (
 	config_iface     = getenvStr("IFACE", "veth-ns")
 	config_dst_ip    = getenvStr("DST_IP", "10.200.1.2")
-	config_dst_port  = getenvInt("DST_PORT", 80)
+	config_dst_port  = getenvInt("DST_PORT", 8080)
 	config_tls       = getenvBool("TLS", false)
-	config_certmagic = getenvBool("CERTMAGIC", true)
+	config_certmagic = getenvBool("CERTMAGIC", false)
 	// Hardcoded tls keys. Will be used when certmagic = false
 	config_tls_cert = getenvStr("TLS_CERT", "cert.pem")
 	config_tls_key  = getenvStr("TLS_KEY", "key.pem")
@@ -78,6 +78,10 @@ func Run(
 		syscall.SIGTERM, // terminate signal from Docker / kubernetes
 	)
 	defer cancel()
+
+	if config_tls {
+		config_dst_port = 443
+	}
 
 	//+++++++++++++++++++++++
 	// Initialize all modules
