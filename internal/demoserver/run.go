@@ -61,7 +61,7 @@ var (
 // The behaviour of the demo server depends on the following env variables:
 // IFACE     network interface the server will listen on
 // DST_IP    ip on the net interface the server will listen on
-// DST_PORT  port the server will listen on (when certmagic is disabled)
+// DST_PORT  port the server will listen on (when certmagic is enabled, this cannot be set to 80)
 // TLS       wether the server should run in TLS mode, with TLS fingerprinting
 // CERTMAGIC wether to enable automatic TLS certificate renewal, using certmagic
 // TLS_CERT  path to the TLS cert file, used when certmagic=false
@@ -78,10 +78,6 @@ func Run(
 		syscall.SIGTERM, // terminate signal from Docker / kubernetes
 	)
 	defer cancel()
-
-	if config_tls {
-		config_dst_port = 443
-	}
 
 	//+++++++++++++++++++++++
 	// Initialize all modules
