@@ -1,6 +1,7 @@
 package demoserver
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/robalb/deviceid/internal/bpfprobe"
 	"github.com/robalb/deviceid/internal/tlswiretap"
-	"github.com/robalb/deviceid/internal/validation"
 	"github.com/robalb/deviceid/pkg/handshake"
 )
 
@@ -36,6 +36,21 @@ func NewRouter(
 	})
 
 	return mux
+}
+
+func RespondError(w http.ResponseWriter, err string, details string, code int) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	response := map[string]string{"error": err, "details": details}
+	json.NewEncoder(w).Encode(response)
+}
+
+func RespondOk(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(data)
 }
 
 type DebugResponse struct {
@@ -82,7 +97,7 @@ func serveTestFinger(
 		// get TCP handshake data
 		err := p.Lookup(h, r.RemoteAddr)
 		if err != nil {
-			validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
+			RespondError(w, err.Error(), "", http.StatusInternalServerError)
 			return
 		}
 
@@ -90,12 +105,12 @@ func serveTestFinger(
 		if config_tls {
 			err = tlswiretap.Lookup(h, r)
 			if err != nil {
-				validation.RespondError(w, err.Error(), "", http.StatusInternalServerError)
+				RespondError(w, err.Error(), "", http.StatusInternalServerError)
 				return
 			}
 		}
 
-		validation.RespondOk(w, DebugResponse{
+		RespondOk(w, DebugResponse{
 			Handshake:     *h,
 			PacketBacklog: uint32(h.GetPacketBacklog()),
 			SockRtt:       0,
@@ -111,7 +126,7 @@ func serveTestBaseline(
 ) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logger.Println("Mock request")
-		validation.RespondOk(w, DebugResponse{
+		RespondOk(w, DebugResponse{
 			Handshake:     handshake.Handshake{},
 			PacketBacklog: 0,
 			SockRtt:       0,
