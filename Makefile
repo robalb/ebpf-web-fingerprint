@@ -1,5 +1,5 @@
 
-EBPF_DIR := internal/bpfprobe
+EBPF_DIR := pkg/bpfprobe
 EBPF_PKG := bpfprobe
 BPF2GO := github.com/cilium/ebpf/cmd/bpf2go
 HEADERS_DIR := headers
