@@ -33,12 +33,12 @@ the server will be accessible at
 `http://10.200.1.2:8080/test/id`
 
 Note that the build process currently requires the Linux UAPI headers to be installed on your system.
-This will change in the future.
+This will change in the future.  
 On ubuntu/debian, you can install the headers with:
 ```bash
 sudo apt install linux-headers-$(uname -r)
 ```
-You can ask your favourite LLM for help with the installation on other linux distributions.
+On other linux distributions you can ask your favourite LLM for help with the installation.
 
 ## Run the demo server in TLS mode
 
