@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -47,11 +48,13 @@ func getenvInt(key string, def int) int {
 }
 
 var (
-	config_iface     = getenvStr("IFACE", "veth-ns")
-	config_dst_ip    = getenvStr("DST_IP", "10.200.1.2")
-	config_dst_port  = getenvInt("DST_PORT", 8080)
-	config_tls       = getenvBool("TLS", false)
-	config_certmagic = getenvBool("CERTMAGIC", false)
+	config_iface        = getenvStr("IFACE", "veth-ns")
+	config_dst_ip       = getenvStr("DST_IP", "10.200.1.2")
+	config_dst_port     = getenvInt("DST_PORT", 8080)
+	config_tls          = getenvBool("TLS", false)
+	config_certmagic    = getenvBool("CERTMAGIC", false)
+	config_acme_path    = getenvStr("CERTMAGIC_PATH", "./acme")
+	config_acme_domains = getenvStr("CERTMAGIC_DOMAINS", "example.com,www.example.com")
 	// Hardcoded tls keys. Will be used when certmagic = false
 	config_tls_cert = getenvStr("TLS_CERT", "cert.pem")
 	config_tls_key  = getenvStr("TLS_KEY", "key.pem")
@@ -99,6 +102,14 @@ func Run(
 	var magic *certmagic.Config
 	if config_certmagic && config_tls {
 		magic = certmagic.NewDefault()
+		magic.Storage = &certmagic.FileStorage{Path: config_acme_path}
+
+		domainSlice := strings.Split(config_acme_domains, ",")
+		for i := range domainSlice {
+			domainSlice[i] = strings.TrimSpace(domainSlice[i])
+		}
+		magic.ManageAsync(ctx, domainSlice)
+
 		acme := certmagic.NewACMEIssuer(magic, certmagic.DefaultACME)
 		// Define the acmechallenge http server and fallback behaviour
 		acmeMux := http.NewServeMux()
@@ -165,6 +176,12 @@ func Run(
 		logger.Printf("fingerprint http server: listening on %s, TLS enabled: %v\n", httpServer.Addr, config_tls)
 		var err error
 		if config_tls {
+			if config_certmagic {
+				// Remove tls cert and key to force the usage of callback fun
+				// tlsConfig.GetCertificate(), which is managed by certmagic.
+				config_tls_cert = ""
+				config_tls_key = ""
+			}
 			err = tlswiretap.ListenAndServeTLS(httpServer, config_tls_cert, config_tls_key)
 		} else {
 			err = httpServer.ListenAndServe()

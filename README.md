@@ -92,6 +92,8 @@ This is the complete list of environment variables you can use, and their defaul
 | `DST_PORT`  | `8080`       | TCP port the server will listen on. When `CERTMAGIC=true`, this **cannot** be `80`.                                                            |
 | `TLS`       | `false`      | Enable TLS mode and TLS fingerprinting. Options: `"true"` or `"false"`                                                                         |
 | `CERTMAGIC` | `false`      | Enable automatic TLS certificate management via Certmagic. Options: `"true"` or `"false"`. When enabled, `TLS_CERT` and `TLS_KEY` are ignored. |
+| `CERTMAGIC_PATH` | `./acme`      | Filesystem path where Certmagic stores certificates, account information, and metadata. Must be writable by the server. |
+| `CERTMAGIC_DOMAINS` | `example.com,www.example.com`      | Comma-separated list of domain names for which Certmagic will automatically obtain and manage TLS certificates.|
 | `TLS_CERT`  | `cert.pem`   | Path to TLS certificate file. Used only when `TLS="true"` and `CERTMAGIC="false"`.                                                             |
 | `TLS_KEY`   | `key.pem`    | Path to TLS private key file. Used only when `TLS="true"` and `CERTMAGIC="false"`.                                                             |
 
