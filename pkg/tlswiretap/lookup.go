@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/robalb/deviceid/pkg/handshake"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 )
 
 // update the given handshake with the client TLS hello data,

@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/caddyserver/certmagic"
-	"github.com/robalb/deviceid/pkg/bpfprobe"
-	"github.com/robalb/deviceid/pkg/tlswiretap"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/bpfprobe"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/tlswiretap"
 	"golang.org/x/sync/errgroup"
 )
 

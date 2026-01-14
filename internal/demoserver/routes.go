@@ -8,9 +8,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
-	"github.com/robalb/deviceid/pkg/bpfprobe"
-	"github.com/robalb/deviceid/pkg/handshake"
-	"github.com/robalb/deviceid/pkg/tlswiretap"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/bpfprobe"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/tlswiretap"
 )
 
 func NewRouter(

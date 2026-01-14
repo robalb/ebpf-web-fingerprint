@@ -2,7 +2,8 @@ package bpfprobe
 
 import (
 	"fmt"
-	"github.com/robalb/deviceid/pkg/handshake"
+
+	"github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 )
 
 func (p *Probe) Lookup(h *handshake.Handshake, remoteAddr string) (err error) {

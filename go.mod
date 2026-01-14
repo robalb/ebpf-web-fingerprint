@@ -1,4 +1,4 @@
-module github.com/robalb/deviceid
+module github.com/robalb/ebpf-web-fingerprint
 
 go 1.24.5
 

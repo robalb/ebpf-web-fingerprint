@@ -1,6 +1,6 @@
 package bpfprobe
 
-import "github.com/robalb/deviceid/pkg/handshake"
+import "github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 
 func parseTCP(t xdpTcpHandshakeVal) handshake.HandshakeTCP {
 	window := netToHost_uint16(t.Window)
