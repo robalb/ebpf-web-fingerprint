@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/robalb/deviceid/internal/demoserver"
+	"github.com/robalb/ebpf-web-fingerprint/internal/demoserver"
 )
 
 // The entry point for the webserver.

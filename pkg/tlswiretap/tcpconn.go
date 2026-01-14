@@ -4,7 +4,7 @@ import (
 	"net"
 	"sync/atomic"
 
-	"github.com/robalb/deviceid/pkg/handshake"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 )
 
 type connKeyType struct{}

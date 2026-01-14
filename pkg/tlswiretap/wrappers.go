@@ -6,7 +6,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/robalb/deviceid/pkg/handshake"
+	"github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 )
 
 // a replacement for http.ListenAndServeTLS(), that starts a regular
