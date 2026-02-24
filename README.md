@@ -29,8 +29,10 @@ make testns_setup
 make testns_run
 ```
 
-the server will be accessible at 
-`http://10.200.1.2:8080/test/id`
+the server will be accessible at both:
+- `http://10.200.1.2:8080/test/id` (ipv4)
+- `http://[fd00:a1b:200::2]:8080/test/id` (ipv6)
+
 
 Note that the build process currently requires the Linux UAPI headers to be installed on your system.
 This will change in the future.  
@@ -57,6 +59,7 @@ TLS=true make testns_run
 the server will be accessible at 
 ```
 curl https://10.200.1.2:8080/test/id --insecure
+curl https://[fd00:a1b:200::2]:8080/test/id --insecure
 ```
 
 to use a specific TLS version:

@@ -12,10 +12,12 @@ sudo ip link set veth-ns netns testns
 
 # Configure host side
 sudo ip addr add 10.200.1.1/24 dev veth-host
+sudo ip addr add fd00:a1b:200::1/64 dev veth-host
 sudo ip link set veth-host up
 
 # Configure namespace side
 sudo ip netns exec testns ip addr add 10.200.1.2/24 dev veth-ns
+sudo ip netns exec testns ip addr add fd00:a1b:200::2/64 dev veth-ns
 sudo ip netns exec testns ip link set veth-ns up
 sudo ip netns exec testns ip link set lo up
 
@@ -25,6 +27,7 @@ sudo ip netns exec testns ip link set lo up
 
 # Add default route in namespace
 sudo ip netns exec testns ip route add default via 10.200.1.1
+sudo ip netns exec testns ip -6 route add default via fd00:a1b:200::1
 
 echo "Namespace 'testns' is set up."
 echo "Run commands like: sudo ip netns exec testns YOURCOMMAND"

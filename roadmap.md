@@ -5,6 +5,7 @@
 
 - [x] Automatic TLS management
 - [x] env variable configuration
+- [ ] ipv6
 - [ ] Containerized builds
 - [ ] Define a public interface:
 
