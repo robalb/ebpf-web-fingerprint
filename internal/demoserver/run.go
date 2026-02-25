@@ -49,7 +49,8 @@ func getenvInt(key string, def int) int {
 
 var (
 	config_iface        = getenvStr("IFACE", "veth-ns")
-	config_dst_ip       = getenvStr("DST_IP", "10.200.1.2")
+	config_dst_ip       = getenvStr("DST_IP", "")
+	config_dst_ip6      = getenvStr("DST_IP6", "")
 	config_dst_port     = getenvInt("DST_PORT", 8080)
 	config_tls          = getenvBool("TLS", false)
 	config_certmagic    = getenvBool("CERTMAGIC", false)
@@ -91,7 +92,7 @@ func Run(
 	logger.Println("fingerprint demo server starting... ")
 
 	//init ebpf probe
-	probe, err := bpfprobe.New(logger, config_iface, config_dst_ip, config_dst_port)
+	probe, err := bpfprobe.New(logger, config_iface, config_dst_port)
 	if err != nil {
 		return fmt.Errorf("ebpf probe failed to start: %v", err)
 	}
