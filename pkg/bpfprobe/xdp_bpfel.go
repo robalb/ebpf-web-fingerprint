@@ -24,15 +24,6 @@ type xdpTcpHandshakeVal struct {
 	_       [1]byte
 }
 
-type xdpTlsHandshakeVal struct {
-	SynSeq        uint32
-	FragmentSize  uint16
-	FragmentCount uint16
-	RecordLen     uint16
-	HelloLen      uint16
-	Hello         [336]uint8
-}
-
 // loadXdp returns the embedded CollectionSpec for xdp.
 func loadXdp() (*ebpf.CollectionSpec, error) {
 	reader := bytes.NewReader(_XdpBytes)
@@ -84,7 +75,6 @@ type xdpProgramSpecs struct {
 type xdpMapSpecs struct {
 	PktCount      *ebpf.MapSpec `ebpf:"pkt_count"`
 	TcpHandshakes *ebpf.MapSpec `ebpf:"tcp_handshakes"`
-	TlsHandshakes *ebpf.MapSpec `ebpf:"tls_handshakes"`
 }
 
 // xdpVariableSpecs contains global variables before they are loaded into the kernel.
@@ -117,14 +107,12 @@ func (o *xdpObjects) Close() error {
 type xdpMaps struct {
 	PktCount      *ebpf.Map `ebpf:"pkt_count"`
 	TcpHandshakes *ebpf.Map `ebpf:"tcp_handshakes"`
-	TlsHandshakes *ebpf.Map `ebpf:"tls_handshakes"`
 }
 
 func (m *xdpMaps) Close() error {
 	return _XdpClose(
 		m.PktCount,
 		m.TcpHandshakes,
-		m.TlsHandshakes,
 	)
 }
 
