@@ -12,6 +12,8 @@ import (
 	"github.com/cilium/ebpf"
 )
 
+type xdpIn6Addr struct{ In6U struct{ U6Addr8 [16]uint8 } }
+
 type xdpTcpHandshakeVal struct {
 	Tick    uint64
 	Seq     uint32
@@ -82,6 +84,7 @@ type xdpMapSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type xdpVariableSpecs struct {
 	DstIp   *ebpf.VariableSpec `ebpf:"dst_ip"`
+	DstIpv6 *ebpf.VariableSpec `ebpf:"dst_ipv6"`
 	DstPort *ebpf.VariableSpec `ebpf:"dst_port"`
 }
 
@@ -121,6 +124,7 @@ func (m *xdpMaps) Close() error {
 // It can be passed to loadXdpObjects or ebpf.CollectionSpec.LoadAndAssign.
 type xdpVariables struct {
 	DstIp   *ebpf.Variable `ebpf:"dst_ip"`
+	DstIpv6 *ebpf.Variable `ebpf:"dst_ipv6"`
 	DstPort *ebpf.Variable `ebpf:"dst_port"`
 }
 

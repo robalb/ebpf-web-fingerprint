@@ -7,7 +7,9 @@
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
 #include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <linux/in.h>
+#include <stdbool.h>
 #include "../../headers/bpf_helpers.h"
 #include "../../headers/bpf_endian.h"
 // clang-format on
@@ -35,6 +37,7 @@ __be16 dst_port = __constant_htons(443);
  * Defaults to 127.0.0.1 when not set
  */
 __be32 dst_ip = 16777343;
+struct in6_addr dst_ipv6 = {};
 
 /*
  * This eBPF map holds a single counter value that is
@@ -84,6 +87,23 @@ static __u64 __always_inline make_key(__u32 ip, __u16 port) {
   return ((__u64)ip << 16) | port;
 }
 
+/**
+ * Compare two ipv6 addresses.
+ * We compare section by section simply because __builtin_memcmp
+ * doesn't exist in the current clang-ebpf version.
+ */
+static bool __always_inline ipv6_addr_equal(const struct in6_addr *a,
+                                            const struct in6_addr *b) {
+  __u32 diff = 0;
+
+  diff |= a->s6_addr32[0] ^ b->s6_addr32[0];
+  diff |= a->s6_addr32[1] ^ b->s6_addr32[1];
+  diff |= a->s6_addr32[2] ^ b->s6_addr32[2];
+  diff |= a->s6_addr32[3] ^ b->s6_addr32[3];
+
+  return diff == 0;
+}
+
 static void __always_inline parse_tcp_syn(struct iphdr *ip, struct tcphdr *tcp,
                                           void *data_end);
 
@@ -127,37 +147,64 @@ int count_packets(struct xdp_md *ctx) {
     eth_type = vlan->h_vlan_encapsulated_proto;
   }
 
-  if (eth_type != __constant_htons(ETH_P_IP))
-    return XDP_PASS;
-
   // ++++++++++
   // IP layer
   // ++++++++++
 
-  struct iphdr *ip = head;
-  head += sizeof(*ip);
+  struct iphdr *ip;
+  struct ipv6hdr *ip6;
 
-  if (head > data_end)
-    return XDP_PASS;
+  __u8 ttl = 0;
 
-  char is_fragment = ip->frag_off & __constant_htons(IP_MF | IP_OFFSET);
-  if (is_fragment)
-    return XDP_PASS;
+  if (eth_type == __constant_htons(ETH_P_IP)) {
+    ip = head;
+    head += sizeof(*ip);
 
-  if (ip->protocol != IPPROTO_TCP)
-    return XDP_PASS;
+    if (head > data_end)
+      return XDP_PASS;
 
-  if (ip->daddr != dst_ip)
-    return XDP_PASS;
+    char is_fragment = ip->frag_off & __constant_htons(IP_MF | IP_OFFSET);
+    if (is_fragment)
+      return XDP_PASS;
 
-  __u32 ip_hdr_len = ip->ihl * 4;
-  // sanity check that the packet field is valid
-  if (ip_hdr_len < sizeof(*ip)) {
+    if (ip->protocol != IPPROTO_TCP)
+      return XDP_PASS;
+
+    if (ip->daddr != dst_ip)
+      return XDP_PASS;
+
+    __u32 ip_hdr_len = ip->ihl * 4;
+    // sanity check that the packet field is valid
+    if (ip_hdr_len < sizeof(*ip)) {
+      return XDP_PASS;
+    }
+    // Adjust the head to follow the dynamic length
+    // declared in the packet instead of the struct len
+    head += ip_hdr_len - sizeof(*ip);
+
+  } else if (eth_type == __constant_htons(ETH_P_IPV6)) {
+    ip6 = head;
+    head += sizeof(*ip6);
+
+    if (head > data_end) {
+      return XDP_PASS;
+    }
+
+    if (ipv6_addr_equal(&ip6->daddr, &dst_ipv6) != 0) {
+      return XDP_PASS;
+    }
+
+    // TODO: decide how to handle ipv6 extensions.
+    // The reationale is that if EHs arrived until here,
+    // it's certainly an information we want to know.
+    // Also, a fragmented TCP SYN could bypass this code.
+    // https://labs.apnic.net/index.php/2023/06/22/a-further-update-on-ipv6-extension-headers/
+    if (ip6->nexthdr != IPPROTO_TCP)
+      return XDP_PASS;
+
+  } else {
     return XDP_PASS;
   }
-  // Adjust the head to follow the dynamic length
-  // declared in the packet instead of the struct len
-  head += ip_hdr_len - sizeof(*ip);
 
   // ++++++++++
   // TCP layer

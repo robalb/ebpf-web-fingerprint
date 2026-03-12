@@ -42,10 +42,10 @@ func New(
 	if ief, err = net.InterfaceByName(interfaceName); err != nil { // get interface
 		return
 	}
-	if addrs, err = ief.Addrs(); err != nil { // get addresses
+	if addrs, err = ief.Addrs(); err != nil {
 		return
 	}
-	for _, addr := range addrs { // get ipv4 address
+	for _, addr := range addrs {
 		ip4 := addr.(*net.IPNet).IP.To4()
 		ip6 := addr.(*net.IPNet).IP.To16()
 		logger.Printf("Found ip: %v", ip6)
@@ -66,8 +66,8 @@ func New(
 	if serverIP6 == nil {
 		logger.Printf("dst_ip6: not set. eBPF probe will not listen for ipv6 packets")
 	}
-	logger.Printf("dst_ip6: %s", serverIP6.String())
-	logger.Printf("dst_ip4: %s", serverIP.String())
+	logger.Printf("choose to bind to this ip6: %s", serverIP6.String())
+	logger.Printf("choose to bind to this ip4: %s", serverIP.String())
 
 	spec, err := loadXdp()
 	if err != nil {
