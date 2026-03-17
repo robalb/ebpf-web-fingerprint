@@ -2,7 +2,7 @@ package bpfprobe
 
 import "github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 
-func parseTCP(t xdpTcpHandshakeVal) handshake.HandshakeTCP {
+func parseTCP(t xdpTcpHandshakeVal, srcPort uint16) handshake.HandshakeTCP {
 	window := netToHost_uint16(t.Window)
 
 	// Optlen doesn't come from a net packet. It's an int defined
@@ -56,7 +56,7 @@ func parseTCP(t xdpTcpHandshakeVal) handshake.HandshakeTCP {
 	}
 
 	return handshake.HandshakeTCP{
-		SourcePort:   t.SrcPort,
+		SourcePort:   srcPort,
 		Window:       window,
 		Option_MSS:   mss,
 		Option_scale: scale,

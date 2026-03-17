@@ -7,39 +7,42 @@ import (
 	"strconv"
 )
 
-// Generate an uint64 key from ip and port, with
-// the same byte order and endiannes as the ebpf
-// program that generated the hasmap entryies.
-//
-//	inline __u64 make_key(__u32 ip, __u16 port) {
-//	   return ((__u64)ip << 16) | port;
-//	}
-func makeKey(remoteAddr string) (key uint64, ip uint32, port uint16, err error) {
+func makeKey(remoteAddr string) (key xdpTcpHandshakeKey, ipStr string, portInt int, err error) {
 	ipStr, portStr, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		err = fmt.Errorf("invalid remoteAddr: %v", err)
 		return
 	}
 
-	ipBytes := net.ParseIP(ipStr).To4()
-	if ipBytes == nil {
-		return 0, 0, 0, fmt.Errorf("invalid IPv4 address: %s", ipStr)
-	}
-	// note: ipBytes is already in big endian network order,
-	// therefore we only need to convert its type to uint32.
-	// func NativeEndian.Uint32 will not cause any byteswap.
-	ip = binary.NativeEndian.Uint32(ipBytes)
-
-	portInt, err := strconv.Atoi(portStr)
+	portInt, err = strconv.Atoi(portStr)
 	if err != nil || portInt < 0 || portInt > 65535 {
-		return 0, 0, 0, fmt.Errorf("invalid port: %s", portStr)
+		err = fmt.Errorf("invalid port: %s", portStr)
+		return
 	}
-	// // note: portInt has its bytes in the native endiannes of the
-	// // architecture, but we need to explicity set it in BigEndian
-	// // network order. This is why we call our hton converter func
-	port = hostToNet_uint16(uint16(portInt))
+	// note: portInt has its bytes in the native endiannes of the
+	// architecture, but we need to explicity set it in BigEndian
+	// network order. This is why we call our hton converter func
+	port := hostToNet_uint16(uint16(portInt))
+	key.Port = port
 
-	//the end key is a composite of address and port, both in big endian order.
-	key = (uint64(ip) << 16) | uint64(port)
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		err = fmt.Errorf("Invalid IP address: %s", ipStr)
+		return
+	}
+	ip4Bytes := ip.To4()
+	if ip4Bytes != nil{
+	    // note: ip4Bytes is already in big endian network order,
+	    // therefore we only need to convert its type to uint32.
+	    // func NativeEndian.Uint32 will not cause any byteswap.
+		key.Addr[0] = binary.NativeEndian.Uint32(ip4Bytes)
+	}else{
+		b := ip.To16()
+		key.Addr[0] = binary.NativeEndian.Uint32(b[0:4])
+		key.Addr[1] = binary.NativeEndian.Uint32(b[4:8])
+		key.Addr[2] = binary.NativeEndian.Uint32(b[8:12])
+		key.Addr[3] = binary.NativeEndian.Uint32(b[12:16])
+	}
+
 	return
 }
