@@ -13,7 +13,7 @@
 
 // When set to 1, the program will capture all TCP SYNs
 // to our destination port, regardless of destination ip.
-// #define IGNORE_DST_IP 1
+#define IGNORE_DST_IP 1
 
 // The max bytes of TCP options we are willing to copy
 #define TCPOPT_MAXLEN 40
@@ -113,6 +113,19 @@ static __always_inline int proto_is_vlan(__u16 h_proto) {
 static void __always_inline copy_tcp_options(struct tcp_handshake_val *val,
                                              struct tcphdr *tcp,
                                              void *data_end);
+
+#ifdef DEBUG
+static void __always_inline debug_ip4(struct iphdr *ip, struct tcphdr *tcp) {
+  bpf_printk("TCP source IP4: %08x", ip->saddr);
+  bpf_printk("TCP source PORT: %04x", tcp->source);
+}
+
+static void __always_inline debug_ip6(struct ipv6hdr *ip6, struct tcphdr *tcp) {
+  bpf_printk("TCP source IP6 [0:63]:   %08x:%08x", ip6->saddr.s6_addr32[0], ip6->saddr.s6_addr32[1]);
+  bpf_printk("TCP source IP6 [64:127]: %08x:%08x", ip6->saddr.s6_addr32[2], ip6->saddr.s6_addr32[3]);
+  bpf_printk("TCP source PORT: %04x", tcp->source);
+}
+#endif
 
 
 SEC("xdp")
@@ -264,12 +277,18 @@ int count_packets(struct xdp_md *ctx) {
   };
 
   if (is_6) {
+      #ifdef DEBUG
+      debug_ip6(ip6, tcp);
+      #endif
       val.ip_ttl = ip6->hop_limit;
       key.addr[0] = ip6->saddr.s6_addr32[0];
       key.addr[1] = ip6->saddr.s6_addr32[1];
       key.addr[2] = ip6->saddr.s6_addr32[2];
       key.addr[3] = ip6->saddr.s6_addr32[3];
   } else {
+      #ifdef DEBUG
+      debug_ip4(ip, tcp);
+      #endif
       val.ip_ttl = ip->ttl;
       key.addr[0] = ip->saddr;
   }
