@@ -12,18 +12,20 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type xdpIn6Addr struct{ In6U struct{ U6Addr8 [16]uint8 } }
+type xdpTcpHandshakeKey struct {
+	Addr [4]uint32
+	Port uint16
+	Pad  [2]uint8
+}
 
 type xdpTcpHandshakeVal struct {
 	Tick    uint64
 	Seq     uint32
-	SrcAddr uint32
-	SrcPort uint16
 	Window  uint16
 	Optlen  uint16
 	IpTtl   uint8
 	Options [40]uint8
-	_       [1]byte
+	_       [7]byte
 }
 
 // loadXdp returns the embedded CollectionSpec for xdp.

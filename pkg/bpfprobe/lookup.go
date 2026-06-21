@@ -2,7 +2,6 @@ package bpfprobe
 
 import (
 	"fmt"
-
 	"github.com/robalb/ebpf-web-fingerprint/pkg/handshake"
 )
 
@@ -17,11 +16,15 @@ func (p *Probe) Lookup(h *handshake.Handshake, remoteAddr string) (err error) {
 	h.SetTickNow(count)
 
 	// Prepare the key to read from the eBPF maps
-	tcphKey, keyAddr, keyPort, err := makeKey(remoteAddr)
+	tcphKey, keyIpStr, keyPort, err := makeKey(remoteAddr)
 	if err != nil {
 		err = fmt.Errorf("TCP syn: KEY_ERROR: %v", err)
 		return
 	}
+
+	fmt.Printf("key: addr=%08x:%08x:%08x:%08x port=%04x\n",
+	  tcphKey.Addr[0], tcphKey.Addr[1], tcphKey.Addr[2], tcphKey.Addr[3],
+	  tcphKey.Port)
 
 	// Read the tcp syn data
 	var tcphVal xdpTcpHandshakeVal
@@ -31,23 +34,13 @@ func (p *Probe) Lookup(h *handshake.Handshake, remoteAddr string) (err error) {
 		return
 	}
 
-	// Sanity check, to avoid hash collision reads
-	if tcphVal.SrcPort != keyPort {
-		err = fmt.Errorf("TCP syn: KEY_PORT_MISMATCH: %v", err)
-		return
-	}
-	if tcphVal.SrcAddr != keyAddr {
-		err = fmt.Errorf("TCP syn: KEY_ADDR_MISMATCH: %v", err)
-		return
-	}
-
 	h.SetTickPacket(tcphVal.Tick)
 
 	h.IP = handshake.HandshakeIP{
-		SourceAddr: tcphVal.SrcAddr,
+		SourceAddrStr: keyIpStr,
 		TTL:        tcphVal.IpTtl,
 	}
-	h.TCP = parseTCP(tcphVal)
+	h.TCP = parseTCP(tcphVal, uint16(keyPort))
 
 	return
 }

@@ -5,6 +5,8 @@ BPF2GO := github.com/cilium/ebpf/cmd/bpf2go
 HEADERS_DIR := headers
 GO_BINARY := main
 GO_BUILD_FLAGS := CGO_ENABLED=0 GOARCH=amd64
+CLANG ?= clang-18
+LLVM_STRIP ?= llvm-strip-18
 
 .PHONY: all
 all: build
@@ -30,7 +32,10 @@ build: $(EBPF_DIR)/xdp_bpfel.go
 # dependency on system-wide headers, which could be missing or outdated
 # TODO: vendor UAPI headers. see: maketest git branch
 $(EBPF_DIR)/xdp_bpfel.go: $(HEADERS_DIR)/bpf_helpers.h $(EBPF_DIR)/xdp.c
+	@which $(CLANG) > /dev/null 2>&1 || { echo "error: $(CLANG) not found. Install with: sudo apt install clang-18 llvm-18"; exit 1; }
 	go run $(BPF2GO) \
+		-cc $(CLANG) \
+		-strip $(LLVM_STRIP) \
 		-go-package $(EBPF_PKG) \
 		-output-dir $(EBPF_DIR) \
 		-tags linux xdp $(EBPF_DIR)/xdp.c -- \

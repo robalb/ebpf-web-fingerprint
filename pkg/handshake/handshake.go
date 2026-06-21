@@ -13,7 +13,7 @@ type Handshake struct {
 }
 
 type HandshakeIP struct {
-	SourceAddr uint32
+	SourceAddrStr string
 	TTL        uint8
 }
 

@@ -1,6 +1,7 @@
 package bpfprobe
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
@@ -60,28 +61,47 @@ func New(
 		}
 	}
 
+	if serverIP == nil && serverIP6 == nil {
+		return nil, fmt.Errorf("Failed to find a valid address for the provided interface: %s .", interfaceName)
+	}
 	if serverIP == nil {
-		return nil, fmt.Errorf("%s: Failed to find a valid ipv4 on the net interface: ", interfaceName, err)
+		logger.Printf("dst_ip4: not set. eBPF probe will not listen for ipv4 packets")
 	}
 	if serverIP6 == nil {
 		logger.Printf("dst_ip6: not set. eBPF probe will not listen for ipv6 packets")
 	}
-	logger.Printf("choose to bind to this ip6: %s", serverIP6.String())
-	logger.Printf("choose to bind to this ip4: %s", serverIP.String())
+	if serverIP6 != nil {
+		logger.Printf("dst_ip6: %s", serverIP6.String())
+	}
+	if serverIP != nil {
+		logger.Printf("dst_ip4: %s", serverIP.String())
+	}
 
 	spec, err := loadXdp()
 	if err != nil {
 		return nil, fmt.Errorf("%s: Failed to load spec: %v", errCtx, err)
 	}
 
-	// Define the target ip, in big-endian format,
-	// and inject the value in the eBPF program
-	if err := spec.Variables["dst_ip"].Set(serverIP); err != nil {
-		return nil, fmt.Errorf("%s: Failed to set dst_ip: %v", errCtx, err)
+	// Inject the target IPs into the eBPF program.
+	// The bytes are already in big-endian network order.
+	if serverIP != nil {
+		if err := spec.Variables["dst_ip"].Set(serverIP); err != nil {
+			return nil, fmt.Errorf("%s: Failed to set dst_ip: %v", errCtx, err)
+		}
+	}
+	if serverIP6 != nil {
+		b := serverIP6.To16()
+		var ip6 [4]uint32
+		ip6[0] = binary.NativeEndian.Uint32(b[0:4])
+		ip6[1] = binary.NativeEndian.Uint32(b[4:8])
+		ip6[2] = binary.NativeEndian.Uint32(b[8:12])
+		ip6[3] = binary.NativeEndian.Uint32(b[12:16])
+		if err := spec.Variables["dst_ipv6"].Set(ip6); err != nil {
+			return nil, fmt.Errorf("%s: Failed to set dst_ipv6: %v", errCtx, err)
+		}
 	}
 
-	// Define the tartet port, in big-endian format,
-	// and inject the value in the eBPF program
+	// Inject the target port in big-endian format.
 	port := hostToNet_uint16(uint16(serverPort))
 	if err := spec.Variables["dst_port"].Set(port); err != nil {
 		return nil, fmt.Errorf("%s: Failed to set dst_port: %v", errCtx, err)
