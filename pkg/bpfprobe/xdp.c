@@ -24,7 +24,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
  * TCP destination port, injected at program load.
  * Defaults to 443 when not set.
  */
-__be16 dst_port = __constant_htons(443);
+__be16 dst_port = __bpf_constant_htons(443);
 
 /*
  * Destination IP, injected at program load.
@@ -103,8 +103,8 @@ static __u8 __always_inline ipv6_addr_equal(const struct in6_addr *a,
 }
 
 static __always_inline int proto_is_vlan(__u16 h_proto) {
-  return !!(h_proto == __constant_htons(ETH_P_8021Q) ||
-            h_proto == __constant_htons(ETH_P_8021AD));
+  return !!(h_proto == __bpf_constant_htons(ETH_P_8021Q) ||
+            h_proto == __bpf_constant_htons(ETH_P_8021AD));
 }
 
 /**
@@ -169,7 +169,7 @@ int count_packets(struct xdp_md *ctx) {
   struct ipv6hdr *ip6;
   __u8 is_6 = 1;
 
-  if (eth_type == __constant_htons(ETH_P_IP)) {
+  if (eth_type == __bpf_constant_htons(ETH_P_IP)) {
     is_6 = 0;
 
     ip = head;
@@ -178,7 +178,7 @@ int count_packets(struct xdp_md *ctx) {
     if (head > data_end)
       return XDP_PASS;
 
-    char is_fragment = ip->frag_off & __constant_htons(IP_MF | IP_OFFSET);
+    char is_fragment = ip->frag_off & __bpf_constant_htons(IP_MF | IP_OFFSET);
     if (is_fragment)
       return XDP_PASS;
 
@@ -199,7 +199,7 @@ int count_packets(struct xdp_md *ctx) {
     // declared in the packet instead of the struct len
     head += ip_hdr_len - sizeof(*ip);
 
-  } else if (eth_type == __constant_htons(ETH_P_IPV6)) {
+  } else if (eth_type == __bpf_constant_htons(ETH_P_IPV6)) {
     is_6 = 1;
 
     ip6 = head;

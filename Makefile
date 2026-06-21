@@ -30,7 +30,6 @@ build: $(EBPF_DIR)/xdp_bpfel.go
 # Build eBPF object and Go bindings.
 # We use our own libbpf API headers and Linux UAPI headers to avoid
 # dependency on system-wide headers, which could be missing or outdated
-# TODO: vendor UAPI headers. see: maketest git branch
 $(EBPF_DIR)/xdp_bpfel.go: $(HEADERS_DIR)/bpf_helpers.h $(EBPF_DIR)/xdp.c
 	@which $(CLANG) > /dev/null 2>&1 || { echo "error: $(CLANG) not found. Install with: sudo apt install clang-18 llvm-18"; exit 1; }
 	go run $(BPF2GO) \
