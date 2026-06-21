@@ -70,12 +70,6 @@ func New(
 	if serverIP6 == nil {
 		logger.Printf("dst_ip6: not set. eBPF probe will not listen for ipv6 packets")
 	}
-	if serverIP6 != nil {
-		logger.Printf("dst_ip6: %s", serverIP6.String())
-	}
-	if serverIP != nil {
-		logger.Printf("dst_ip4: %s", serverIP.String())
-	}
 
 	spec, err := loadXdp()
 	if err != nil {
@@ -85,11 +79,13 @@ func New(
 	// Inject the target IPs into the eBPF program.
 	// The bytes are already in big-endian network order.
 	if serverIP != nil {
+		logger.Printf("dst_ip4: %s", serverIP.String())
 		if err := spec.Variables["dst_ip"].Set(serverIP); err != nil {
 			return nil, fmt.Errorf("%s: Failed to set dst_ip: %v", errCtx, err)
 		}
 	}
 	if serverIP6 != nil {
+		logger.Printf("dst_ip6: %s", serverIP6.String())
 		b := serverIP6.To16()
 		var ip6 [4]uint32
 		ip6[0] = binary.NativeEndian.Uint32(b[0:4])

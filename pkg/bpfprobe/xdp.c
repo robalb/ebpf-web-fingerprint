@@ -13,7 +13,7 @@
 
 // When set to 1, the program will capture all TCP SYNs
 // to our destination port, regardless of destination ip.
-#define IGNORE_DST_IP 1
+// #define IGNORE_DST_IP 1
 
 // The max bytes of TCP options we are willing to copy
 #define TCPOPT_MAXLEN 40
@@ -37,7 +37,6 @@ __be32 dst_ip = 16777343;
  * Destination IPv6, injected at program load.
  * Will be ignored if IGNORE_DST_IP is set.
  */
-// struct in6_addr dst_ipv6 = {};
 __be32 dst_ipv6[4] = {};
 
 /*
@@ -108,14 +107,11 @@ static __always_inline int proto_is_vlan(__u16 h_proto) {
             h_proto == __constant_htons(ETH_P_8021AD));
 }
 
-static void __always_inline  push_ip_tcp_syn(__u64 *count,
-                                             struct iphdr *ip,
-                                             struct tcphdr *tcp, 
-                                             void *data_end);
-
-static void __always_inline push_ip6_tcp_syn(__u64 *count,
-                                             struct ipv6hdr *ip,
-                                             struct tcphdr *tcp, 
+/**
+ * Copy TCP options from the packet into the handshake value struct.
+ */
+static void __always_inline copy_tcp_options(struct tcp_handshake_val *val,
+                                             struct tcphdr *tcp,
                                              void *data_end);
 
 
@@ -236,6 +232,12 @@ int count_packets(struct xdp_md *ctx) {
   if (!tcp->syn || tcp->ack) {
     return XDP_PASS;
   }
+        
+  __u16 tcp_hdr_len = tcp->doff * 4;
+  /* Sanity check that the packet field is valid */
+  if (tcp_hdr_len < sizeof(*tcp)) {
+    return XDP_PASS;
+  }
 
 
   // +-------------------+
@@ -243,152 +245,49 @@ int count_packets(struct xdp_md *ctx) {
   // +-------------------+
 
   // increment the SYN counter
-  // TODO: avoid in the future, or replace with BPF_MAP_TYPE_PERCPU_ARRAY
+  // TODO: replace with BPF_MAP_TYPE_PERCPU_ARRAY
   __u32 counterkey = 0;
   __u64 *count = bpf_map_lookup_elem(&pkt_count, &counterkey);
   if (count) {
-    #ifdef DEBUG
-      bpf_printk("TCP SYN saved at tick: %d, tcp.seq: %u", *count,
-                 __bpf_ntohl(tcp->seq));
-    #endif
     __sync_fetch_and_add(count, 1);
   }
 
-  if(is_6){
-      push_ip6_tcp_syn(count, ip6, tcp, data_end);
-  }else{
-      push_ip_tcp_syn(count, ip, tcp, data_end);
+  struct tcp_handshake_val val = {
+      .tick = count ? *count : 0,
+      .seq = tcp->seq,
+      .window = tcp->window,
+      .optlen = tcp_hdr_len - sizeof(*tcp),
+  };
+
+  struct tcp_handshake_key key = {
+      .port = tcp->source,
+  };
+
+  if (is_6) {
+      val.ip_ttl = ip6->hop_limit;
+      key.addr[0] = ip6->saddr.s6_addr32[0];
+      key.addr[1] = ip6->saddr.s6_addr32[1];
+      key.addr[2] = ip6->saddr.s6_addr32[2];
+      key.addr[3] = ip6->saddr.s6_addr32[3];
+  } else {
+      val.ip_ttl = ip->ttl;
+      key.addr[0] = ip->saddr;
   }
+
+  copy_tcp_options(&val, tcp, data_end);
+  bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);
+
   return XDP_PASS;
-
 }
 
-
-void push_ip_tcp_syn(__u64 *count, struct iphdr *ip, struct tcphdr *tcp, void *data_end) {
-
-  #ifdef DEBUG
-  // debug destination filtering
-  bpf_printk("TCP destination IP4: %d - %d", ip->daddr, dst_ip);
-  bpf_printk("TCP destination PORT: %d - %d", tcp->dest, dst_port);
-  // debug source filtering
-  bpf_printk("TCP source IP4: %08x", ip->saddr);
-  bpf_printk("TCP source PORT: %04x", tcp->source);
-  #endif
-
-
-  __u16 tcp_hdr_len = tcp->doff * 4;
-  /* Sanity check that the packet field is valid */
-  if (tcp_hdr_len < sizeof(*tcp)) {
-    return;
-  }
-
-  struct tcp_handshake_val val = {
-      .tick = *count,
-      .seq = tcp->seq,
-      .window = tcp->window,
-      .optlen = tcp_hdr_len - sizeof(*tcp),
-      .ip_ttl = ip->ttl,
-  };
-
-  struct tcp_handshake_key key = {
-      .addr = { ip->saddr },
-      .port = tcp->source,
-  };
-
-  /* Pointer to the start of the tcp options */
+static void __always_inline copy_tcp_options(struct tcp_handshake_val *val,
+                                             struct tcphdr *tcp,
+                                             void *data_end) {
   __u8 *options = (__u8 *)(tcp + 1);
-
-  /* Copy the TCP options from the packet into our struct. */
   for (__u32 i = 0;
-       i <= TCPOPT_MAXLEN && i < val.optlen && (void *)options + i < data_end;
+       i <= TCPOPT_MAXLEN && i < val->optlen &&
+       (void *)options + i < data_end;
        ++i) {
-    val.options[i] = options[i];
+    val->options[i] = options[i];
   }
-
-  bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);
-
 }
-
-void push_ip6_tcp_syn(__u64 *count, struct ipv6hdr *ip6, struct tcphdr *tcp, void *data_end) {
-
-  #ifdef DEBUG
-  // debug destination filtering
-  bpf_printk("TCP destination IP6 [0:63]:   %08x:%08x", ip6->daddr.s6_addr32[0], ip6->daddr.s6_addr32[1]);
-  bpf_printk("TCP destination IP6 [64:127]: %08x:%08x", ip6->daddr.s6_addr32[2], ip6->daddr.s6_addr32[3]);
-  bpf_printk("TCP destination PORT: %d - %d", tcp->dest, dst_port);
-  // debug source filtering
-  bpf_printk("TCP source IP6 [0:63]:   %08x:%08x", ip6->saddr.s6_addr32[0], ip6->saddr.s6_addr32[1]);
-  bpf_printk("TCP source IP6 [64:127]: %08x:%08x", ip6->saddr.s6_addr32[2], ip6->saddr.s6_addr32[3]);
-  bpf_printk("TCP source PORT: %04x", tcp->source);
-  #endif
-
-  __u16 tcp_hdr_len = tcp->doff * 4;
-  /* Sanity check that the packet field is valid */
-  if (tcp_hdr_len < sizeof(*tcp)) {
-    return;
-  }
-
-  struct tcp_handshake_val val = {
-      .tick = *count,
-      .seq = tcp->seq,
-      .window = tcp->window,
-      .optlen = tcp_hdr_len - sizeof(*tcp),
-      .ip_ttl = ip6->hop_limit,
-  };
-
-  struct tcp_handshake_key key = {
-      .addr = {
-          ip6->saddr.s6_addr32[0],
-          ip6->saddr.s6_addr32[1],
-          ip6->saddr.s6_addr32[2],
-          ip6->saddr.s6_addr32[3],
-      },
-      .port = tcp->source,
-  };
-
-  /* Pointer to the start of the tcp options */
-  __u8 *options = (__u8 *)(tcp + 1);
-
-  /* Copy the TCP options from the packet into our struct. */
-  for (__u32 i = 0;
-       i <= TCPOPT_MAXLEN && i < val.optlen && (void *)options + i < data_end;
-       ++i) {
-    val.options[i] = options[i];
-  }
-
-  bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);
-}
-
-
-// void parse_tcp_syn(__u8 ttl, struct tcp_handshake_key *key, struct tcphdr *tcp, void *data_end) {
-//
-//   __u16 tcp_hdr_len = tcp->doff * 4;
-//   /* Sanity check that the packet field is valid */
-//   if (tcp_hdr_len < sizeof(*tcp)) {
-//     return;
-//   }
-//
-//   struct tcp_handshake_val val = {
-//       .tick = 0,
-//       .seq = tcp->seq,
-//       .window = tcp->window,
-//       .optlen = tcp_hdr_len - sizeof(*tcp),
-//       .ip_ttl = ttl,
-//   };
-//
-//   #ifdef DEBUG
-//   bpf_printk("TCP hashmap KEY: %016llx", key);
-//   #endif
-//
-//   /* Pointer to the start of the tcp options */
-//   __u8 *options = (__u8 *)(tcp + 1);
-//
-//   /* Copy the TCP options from the packet into our struct. */
-//   for (__u32 i = 0;
-//        i <= TCPOPT_MAXLEN && i < val.optlen && (void *)options + i < data_end;
-//        ++i) {
-//     val.options[i] = options[i];
-//   }
-//
-//   bpf_map_update_elem(&tcp_handshakes, &key, &val, BPF_ANY);
-// }
